@@ -2,6 +2,9 @@
 # (setq python-shell-intepreter-args "-p")
 
 import diffusers
+import gc
+import transformers
+from tqdm import tqdm
 from more_itertools import flatten, batched
 import torch
 from torchvision.transforms.functional import to_pil_image
@@ -24,10 +27,6 @@ photos = np.load(data_path / "photos.npy")
 
 inputs = torch.Tensor(np.abs(np_inputs)).to(torch.half)
 
-# shuffle_order = np.random.permutation(len(inputs))
-# inputs = inputs[shuffle_order]
-# targets = targets[shuffle_order]
-
 std = inputs.std()
 mean = inputs.mean()
 inputs = inputs - inputs.mean()
@@ -38,9 +37,24 @@ pipeline = diffusers.StableDiffusionImg2ImgPipeline.from_pretrained(
     "/data/sd/sd-v1-5",
     torch_dtype=torch.half,
     use_safetensors=True
-).to("cuda:1")
-
+)
+vae = pipeline.vae.to(1)
+vae.half()
+vae.eval()
 pipeline.safety_checker = None
+
+# ***
+
+feature_extractor = transformers.SegformerImageProcessor.from_pretrained(
+    "nvidia/segformer-b0-finetuned-ade-512-512"
+)
+segformer = transformers.SegformerModel.from_pretrained(
+    "nvidia/segformer-b0-finetuned-ade-512-512"
+)
+segformer = segformer.to(1)
+segformer.half()
+segformer.eval()
+
 
 # ***
 class CSIAutoencoder(nn.Module):
@@ -65,9 +79,6 @@ class CSIAutoencoder(nn.Module):
 
     def num_params(self):
         return sum(p.numel() for p in self.parameters())
-# ***
-def decode_batch_preds(p):
-    return (pipeline.vae.decode(p.to(pipeline.device)).sample + 1) / 2
 
 # ***
 model = CSIAutoencoder().to(0)
@@ -75,53 +86,63 @@ model = CSIAutoencoder().to(0)
 lat_loss = nn.MSELoss()
 seg_loss = nn.MSELoss()
 
+num_epochs = 40
 optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
-num_epochs = 1
 
 inputs = inputs.to(0, torch.half)
 targets = targets.to(0, torch.half)
-# split_idx = len(inputs) - 100
-split_idx = 32
+targets_seg = targets_seg.to(0, torch.half)
+split_idx = len(inputs) - 100
 
+# ***
+
+epoch_loss_history = []
 for epoch in range(num_epochs):
     model.train()
     epoch_loss = 0.0
-    for x, t_lat, t_seg in zip(batched(inputs[: split_idx], 32),
-                    batched(targets[: split_idx], 32),
-                    batched(targets_seg[: split_idx], 32)):
+    for x, t_lat, t_seg in tqdm(zip(batched(inputs[: split_idx], 32),
+                                    batched(targets[: split_idx], 32),
+                                    batched(targets_seg[: split_idx], 32)),
+                                total=split_idx//32):
         x_batch = torch.stack(x)
         t_lat_batch = torch.stack(t_lat)
         t_seg_batch = torch.stack(t_seg)
-
         model.half()
         optimizer.zero_grad()
-
         p = model(x_batch)
         loss_1 = lat_loss(p, t_lat_batch)
-        loss_2 = seg_loss(decode_batch_preds(p), t_seg_batch)
+        with torch.no_grad():
+            p = p.to(1)
+            decoded = ((vae.decode(p).sample + 1) / 2).clamp(0, 1)
+            del p
+            p_img = feature_extractor(images=decoded, return_tensors="pt").pixel_values
+            p_seg = segformer(decoded).last_hidden_state
+            p_seg = p_seg.to(0)
+        loss_2 = seg_loss(p_seg, t_seg_batch)
         loss = loss_1 + loss_2
         loss.backward()
-
         model.float()
         optimizer.step()
         epoch_loss += loss.item()
     model.half()
     model.eval()
     val_loss = 0
-    # with torch.no_grad():
-    #     for x, y in zip(inputs[split_idx + 1:], targets[split_idx + 1:]):
-    #         p = model(x.unsqueeze(0)).squeeze()
-    #         val_loss += loss_function(p, y).item()
-    # epoch_loss /= split_idx
-    # val_loss /= len(inputs) - split_idx
+    with torch.no_grad():
+        for x, y in zip(inputs[split_idx + 1:], targets[split_idx + 1:]):
+            p = model(x.unsqueeze(0)).squeeze()
+            val_loss += lat_loss(p, y).item()
+    epoch_loss /= split_idx
+    epoch_loss_history.append(epoch_loss)
+
+    val_loss /= len(inputs) - split_idx
     print(f"Epoch [{epoch+1}/{num_epochs}], TL: {epoch_loss}, VL: {val_loss}")
 
 # ***
 
 (data_path / "ckpts").mkdir(exist_ok=True)
-torch.save(model, data_path / "ckpts" / "mlp_deep")
+torch.save(model, data_path / "ckpts" / "mlp_deep_segloss")
 
-model = torch.load(data_path / "ckpts" / "mlp_deep", weights_only=False).to(0)
+# model = torch.load(data_path / "ckpts" / "mlp_deep", weights_only=False).to(0)
 
 # ***
 

@@ -36,7 +36,7 @@ class CSIAutoencoder(nn.Module):
         # input: 1992*2 = 3984 or 1992
         # output: 4*60*80 = 19200
         super().__init__()
-        layer_sizes = [1992, 1000, 500, 250, 500, 1000, 19200]
+        layer_sizes = [1992, 1000, 500, 250, 500, 1000, 16384]
 
         layers = [[nn.ReLU(), nn.Linear(x, y)]
                   if n != 0 else [nn.Linear(x, y)]
@@ -45,21 +45,24 @@ class CSIAutoencoder(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor):
-        batch_size = x.shape[0]
-        x = self.layers(x)
-        x = torch.reshape(x, (batch_size, 4, 60, 80))
-        return x
+        out = self.layers(x)
+        if len(x.shape) == 2:
+            out = torch.reshape(out, (x.shape[0], 4, 64, 64))
+        else:
+            out = torch.reshape(out, (4, 64, 64))
+        return out
 
     def num_params(self):
         return sum(p.numel() for p in self.parameters())
 
 # ***
-model = CSIAutoencoder().to(0)
+gpu_rank = 2
+model = CSIAutoencoder().to(gpu_rank)
 loss_function = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
 num_epochs = 100
-inputs = inputs.to(0, torch.half)
-targets = targets.to(0, torch.half)
+inputs = inputs.to(gpu_rank, torch.half)
+targets = targets.to(gpu_rank, torch.half)
 split_idx = len(inputs) - 100
 for epoch in range(num_epochs):
     model.train()
@@ -88,49 +91,45 @@ for epoch in range(num_epochs):
 
 # ***
 (data_path / "ckpts").mkdir(exist_ok=True)
-torch.save(model, data_path / "ckpts" / "mlp_deep")
+torch.save(model, data_path / "ckpts" / "mlp_deep_64")
 
-model = torch.load(data_path / "ckpts" / "mlp_deep", weights_only=False).to(0)
+model = torch.load(data_path / "ckpts" / "mlp_deep_segloss", weights_only=False).to(0)
 
 # ***
 pipeline = diffusers.StableDiffusionImg2ImgPipeline.from_pretrained(
     "/data/sd/sd-v1-5",
     torch_dtype=torch.half,
     use_safetensors=True
-).to("cuda:1")
+).to(0)
 
 pipeline.safety_checker = None
 
 # ***
 
+gpu_rank = 0
 test_idx = 1445
 
 test_input = inputs[test_idx]
-test = model(test_input.to("cuda", torch.half).unsqueeze(0))
+test = model(test_input.to(gpu_rank, torch.half).unsqueeze(0))
 
 decoded = (pipeline.vae.decode(
-    test.to(1)
+    test.to(gpu_rank)
 ).sample + 1) / 2
 to_pil_image(decoded.squeeze()).save(data_path / "test_latent.png")
 
 gen = torch.Generator("cuda")
 
-test_photo = torch.from_numpy(photos[test_idx]).to(1, torch.half).unsqueeze(0).permute(0, 3, 1, 2)
-
-to_pil_image(
-    pipeline.vae.decode(
-        pipeline.vae.encode(test_photo).latent_dist.mode()
-    ).sample.squeeze()
-).save(data_path / "test_direct.png")
+test_photo = torch.from_numpy(photos[test_idx]).to(gpu_rank, torch.half).unsqueeze(0).permute(0, 3, 1, 2)
 
 Image.fromarray(photos[test_idx]).save(data_path / "test_photo.png")
 
 t = pipeline(
-    "a man in a clean and empty room, photograph, 4k, realistic, high resolution",
+    "a photograph of a man wearing a white hoodie in a clean and empty room, 4k, realistic, high resolution",
     test * 0.18215,
-    strength=0.5,
-    num_inference_steps=70,
-    guidance_scale=7,
+    negative_prompts="blurry, out of focus, depth of field",
+    strength=0.6,
+    # num_inference_steps=70,
+    # guidance_scale=6,
 )
 
 t.images[0].save(
