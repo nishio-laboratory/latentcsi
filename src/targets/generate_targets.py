@@ -14,16 +14,17 @@ import numpy as np
 from PIL import Image
 import os
 
+
 def run_inference(rank, world_size, photos, data_path, distribution):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    
+
     vae = diffusers.AutoencoderKL().from_pretrained(
         "/data/sd/sd-v1-5",
         subfolder="vae",
         use_safetensors=True,
         torch_dtype=torch.float16,
     )
-    
+
     image_processor = VaeImageProcessor(vae_scale_factor=8)
     vae.to(rank)
     gen = torch.Generator(rank)
@@ -31,10 +32,12 @@ def run_inference(rank, world_size, photos, data_path, distribution):
 
     chunk_size = len(photos) // world_size
     out = torch.empty(
-        (chunk_size,
-         8 if distribution else 4,
-         photos[0].height // 8,
-         photos[0].width // 8)
+        (
+            chunk_size,
+            8 if distribution else 4,
+            photos[0].height // 8,
+            photos[0].width // 8,
+        )
     ).to("cpu")
 
     with torch.no_grad():
@@ -51,12 +54,12 @@ def run_inference(rank, world_size, photos, data_path, distribution):
     torch.save(out, data_path / "targets" / f"out_{rank}.pt")
     dist.destroy_process_group()
 
-def preprocess_image(im: Image, left_offset = 34):
-    return im.resize(
-        (640, 512), resample=Image.Resampling.BICUBIC
-    ).crop(
+
+def preprocess_image(im: Image, left_offset=34):
+    return im.resize((640, 512), resample=Image.Resampling.BICUBIC).crop(
         (left_offset, 0, 512 + left_offset, 512)
     )
+
 
 if __name__ == "__main__":
     world_size = torch.cuda.device_count()
@@ -64,9 +67,10 @@ if __name__ == "__main__":
         prog="Generate latent targets from photos"
     )
     parser.add_argument(
-        "-d", "--distribution",
+        "-d",
+        "--distribution",
         action="store_true",
-        help="output vae distribution instead of sampled latents"
+        help="output vae distribution instead of sampled latents",
     )
     parser.add_argument("-p", "--path", required=True)
     args = parser.parse_args()
@@ -81,15 +85,19 @@ if __name__ == "__main__":
         run_inference,
         args=(world_size, photos, data_path, args.distribution),
         nprocs=world_size,
-        join=True
+        join=True,
     )
 
     del photos
     gc.collect()
 
     data = torch.concat(
-        [torch.load(data_path / "targets" / f"out_{i}.pt", weights_only=False)
-         for i in range(world_size)]
+        [
+            torch.load(
+                data_path / "targets" / f"out_{i}.pt", weights_only=False
+            )
+            for i in range(world_size)
+        ]
     )
     if args.distribution:
         torch.save(data, data_path / "targets" / "targets_dists.pt")

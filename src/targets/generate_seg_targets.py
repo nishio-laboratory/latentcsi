@@ -14,6 +14,7 @@ from PIL import Image
 import os
 from more_itertools import batched
 
+
 def run_inference(rank, world_size, photos, data_path):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     feature_extractor = SegformerImageProcessor.from_pretrained(
@@ -28,28 +29,27 @@ def run_inference(rank, world_size, photos, data_path):
 
     chunk_size = len(photos) // world_size
     out = torch.empty(
-        (chunk_size,
-         256,
-         photos[0].height // 32,
-         photos[0].width // 32)
+        (chunk_size, 256, photos[0].height // 32, photos[0].width // 32)
     ).to("cpu")
 
     with torch.no_grad():
         for i in range(0, chunk_size):
             idx = i + rank * chunk_size
-            inputs = feature_extractor(images=photos[idx], return_tensors="pt").to(rank)
+            inputs = feature_extractor(
+                images=photos[idx], return_tensors="pt"
+            ).to(rank)
             output = model(**inputs).last_hidden_state.squeeze()
             out[i] = output
 
     torch.save(out, data_path / "targets" / f"out_{rank}.pt")
     dist.destroy_process_group()
 
-def preprocess_image(im: Image, left_offset = 34):
-    return im.resize(
-        (640, 512), resample=Image.Resampling.BICUBIC
-    ).crop(
+
+def preprocess_image(im: Image, left_offset=34):
+    return im.resize((640, 512), resample=Image.Resampling.BICUBIC).crop(
         (left_offset, 0, 512 + left_offset, 512)
     )
+
 
 if __name__ == "__main__":
     world_size = torch.cuda.device_count()
@@ -69,15 +69,19 @@ if __name__ == "__main__":
         run_inference,
         args=(world_size, photos, data_path),
         nprocs=world_size,
-        join=True
+        join=True,
     )
 
     del photos
     gc.collect()
 
     data = torch.concat(
-        [torch.load(data_path / "targets" / f"out_{i}.pt", weights_only=False)
-         for i in range(world_size)]
+        [
+            torch.load(
+                data_path / "targets" / f"out_{i}.pt", weights_only=False
+            )
+            for i in range(world_size)
+        ]
     )
     torch.save(data, data_path / "targets" / "targets_seg.pt")
 

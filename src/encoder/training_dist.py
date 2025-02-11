@@ -13,8 +13,9 @@ from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 torch.set_default_dtype(torch.half)
 data_path = Path("/data/datasets/walking")
 
-targets = torch.load(data_path / "targets" / "targets_dists.pt",
-                     weights_only=True).to(torch.half)
+targets = torch.load(
+    data_path / "targets" / "targets_dists.pt", weights_only=True
+).to(torch.half)
 
 np_inputs = np.load(data_path / "csi.npy")
 # photos = np.load(data_path / "photos.npy")
@@ -35,6 +36,7 @@ mean = inputs.mean()
 inputs = inputs - inputs.mean()
 inputs = inputs / std
 
+
 # ***
 class CSIAutoencoder(nn.Module):
     def __init__(self):
@@ -42,9 +44,7 @@ class CSIAutoencoder(nn.Module):
         # output: 4*60*80 = 19200
         super().__init__()
         self.layers = nn.Sequential(
-            nn.Linear(1992, 2000),
-            nn.ReLU(),
-            nn.Linear(2000, 38400)
+            nn.Linear(1992, 2000), nn.ReLU(), nn.Linear(2000, 38400)
         )
 
     def forward(self, x: torch.Tensor):
@@ -54,6 +54,7 @@ class CSIAutoencoder(nn.Module):
 
     def num_params(self):
         return sum(p.numel() for p in self.parameters())
+
 
 # ***
 model = CSIAutoencoder().to(0)
@@ -66,7 +67,7 @@ split_idx = len(inputs) - 100
 for epoch in range(num_epochs):
     model.train()
     epoch_loss = 0.0
-    for x, y in zip(inputs[: split_idx], targets[: split_idx]):
+    for x, y in zip(inputs[:split_idx], targets[:split_idx]):
         model.half()
         optimizer.zero_grad()
         p = model(x)
@@ -81,12 +82,14 @@ for epoch in range(num_epochs):
     model.eval()
     val_loss = 0
     with torch.no_grad():
-        for x, y in zip(inputs[split_idx + 1:], targets[split_idx + 1:]):
+        for x, y in zip(inputs[split_idx + 1 :], targets[split_idx + 1 :]):
             p = model(x)
             val_loss += loss_function(p, y).item()
     epoch_loss /= split_idx
     val_loss /= len(inputs) - split_idx
-    print(f"Epoch [{epoch+1}/{num_epochs}], TL: {epoch_loss}, VL: {val_loss}")
+    print(
+        f"Epoch [{epoch + 1}/{num_epochs}], TL: {epoch_loss}, VL: {val_loss}"
+    )
 
 # ***
 (data_path / "ckpts").mkdir(exist_ok=True)
@@ -94,9 +97,7 @@ torch.save(model, data_path / "ckpts" / "mlp_2layer_abs")
 
 # ***
 pipeline = diffusers.StableDiffusionImg2ImgPipeline.from_pretrained(
-    "/data/sd/sd-v1-5",
-    torch_dtype=torch.half,
-    use_safetensors=True
+    "/data/sd/sd-v1-5", torch_dtype=torch.half, use_safetensors=True
 ).to("cuda:1")
 
 pipeline.safety_checker = None
@@ -111,15 +112,15 @@ test_idx = 5515
 test_input = inputs[test_idx]
 test = model(test_input.to("cuda", torch.half)).reshape((1, 8, 60, 80))
 
+
 def sample_from_dist(dist, gen):
     posterior = DiagonalGaussianDistribution(dist)
     return posterior.mode()
 
+
 test_latent = sample_from_dist(test, gen)
 
-decoded = pipeline.vae.decode(
-    test_latent.to(1)
-).sample
+decoded = pipeline.vae.decode(test_latent.to(1)).sample
 
 to_pil_image(decoded.squeeze()).save(data_path / "test_latent.png")
 
@@ -132,8 +133,6 @@ t = pipeline(
     num_inference_steps=70,
     guidance_scale=6,
 )
-t.images[0].save(
-    data_path / "test.png"
-)
+t.images[0].save(data_path / "test.png")
 
 Image.fromarray(photos[test_idx]).save(data_path / "test_photo.png")
