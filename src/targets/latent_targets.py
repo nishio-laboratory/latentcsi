@@ -1,21 +1,15 @@
 # (setq python-shell-interpreter "/home/esrh/csi_to_image/activate_docker.sh")
 # (setq python-shell-intepreter-args "")
 
-import sys
-import gc
+import utils
 import torch
 import argparse
 import torch.distributed as dist
-import torch.multiprocessing as mp
 import diffusers
 from diffusers.image_processor import VaeImageProcessor
-from pathlib import Path
-import numpy as np
-from PIL import Image
-import os
 
 
-def run_inference(rank, world_size, photos, data_path, distribution):
+def run_inference(rank, world_size, photos, formatter, args):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     vae = diffusers.AutoencoderKL().from_pretrained(
         "/data/sd/sd-v1-5",
@@ -28,39 +22,37 @@ def run_inference(rank, world_size, photos, data_path, distribution):
     gen = torch.Generator(rank)
     print(f"RANK {rank} loaded model")
 
-    chunk_size = len(photos) // world_size
-    out = torch.empty(
+    @utils.chunk_process
+    def compute(img):
+        img = image_processor.preprocess(img).to(device=rank, dtype=torch.half)
+        if args.distribution:
+            return vae._encode(img)
+        else:
+            return vae.encode(img).latent_dist.sample(gen)
+
+    out = compute(
+        photos,
+        rank,
+        world_size,
         (
-            chunk_size,
-            8 if distribution else 4,
+            8 if args.distribution else 4,
             photos[0].height // 8,
             photos[0].width // 8,
-        )
+        ),
     ).to("cpu")
 
-    with torch.no_grad():
-        for i in range(0, chunk_size):
-            idx = i + rank * chunk_size
-            img = image_processor.preprocess(photos[idx]).to(
-                device=rank, dtype=torch.half
-            )
-            if distribution:
-                out[i] = vae._encode(img)
-            else:
-                out[i] = vae.encode(img).latent_dist.sample(gen)
-
-    torch.save(out, data_path / "targets" / f"out_{rank}.pt")
+    torch.save(out, formatter(args.path, rank))
     dist.destroy_process_group()
 
 
-def preprocess_image(im: Image, left_offset=34):
-    return im.resize((640, 512), resample=Image.Resampling.BICUBIC).crop(
-        (left_offset, 0, 512 + left_offset, 512)
-    )
-
-
 if __name__ == "__main__":
-    world_size = torch.cuda.device_count()
+
+    def save_func(data, args):
+        if args.distribution:
+            torch.save(data, args.path / "targets" / "targets_dists.pt")
+        else:
+            torch.save(data, args.path / "targets" / "targets_latents.pt")
+
     parser = argparse.ArgumentParser(
         prog="Generate latent targets from photos"
     )
@@ -70,37 +62,9 @@ if __name__ == "__main__":
         action="store_true",
         help="output vae distribution instead of sampled latents",
     )
-    parser.add_argument("-p", "--path", required=True)
-    args = parser.parse_args()
 
-    data_path = Path(args.path)
-    photos = np.load(data_path / "photos.npy")
-    photos = [preprocess_image(Image.fromarray(i)) for i in photos]
-
-    (data_path / "targets").mkdir(exist_ok=True)
-
-    mp.spawn(
+    utils.run_dist(
         run_inference,
-        args=(world_size, photos, data_path, args.distribution),
-        nprocs=world_size,
-        join=True,
+        lambda args: "targets_dists" if args.distribution else "targets_latents",
+        parser
     )
-
-    del photos
-    gc.collect()
-
-    data = torch.concat(
-        [
-            torch.load(
-                data_path / "targets" / f"out_{i}.pt", weights_only=False
-            )
-            for i in range(world_size)
-        ]
-    )
-    if args.distribution:
-        torch.save(data, data_path / "targets" / "targets_dists.pt")
-    else:
-        torch.save(data, data_path / "targets" / "targets_latents.pt")
-
-    for i in range(world_size):
-        os.remove(data_path / "targets" / f"out_{i}.pt")
