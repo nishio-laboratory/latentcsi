@@ -18,16 +18,19 @@ def run_inference(rank, world_size, photos, formatter, args):
     model.to(rank)
     print(f"RANK {rank} loaded model")
 
+    selected_idxs = [0, 3, 12, 15, 5]
+
     @utils.chunk_process
     def compute(img):
         inputs = feature_extractor(images=img, return_tensors="pt").to(rank)
-        return model(**inputs).last_hidden_state.squeeze()
+        logits = model(**inputs).logits.squeeze()
+        return logits[selected_idxs].argmax(dim=0)
 
     out = compute(
         photos,
         rank,
         world_size,
-        (256, photos[0].height // 32, photos[0].width // 32)
+        (photos[0].height // 4, photos[0].width // 4)
     )
 
     torch.save(out, formatter(args.path, rank))
