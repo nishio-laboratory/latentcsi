@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Any
 import torch
 from torch import nn
 from more_itertools import flatten
@@ -6,7 +6,9 @@ from more_itertools import flatten
 
 class MLP(nn.Module):
     def __init__(
-        self, layer_sizes: List[int], output_shape: Tuple[int] = (4, 64, 64)
+        self,
+        layer_sizes: List[int],
+        output_shape: Tuple[int, int, int] = (4, 64, 64),
     ):
         super().__init__()
         layers = [
@@ -16,6 +18,7 @@ class MLP(nn.Module):
         layers = list(flatten(layers))
         self.layers = nn.Sequential(*layers)
         self.output_shape = output_shape
+        self.dummy_param = nn.Parameter(torch.empty(0))
 
     def forward(self, x: torch.Tensor):
         out = self.layers(x)

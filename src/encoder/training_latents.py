@@ -12,9 +12,9 @@ from PIL import Image
 import lightning as L
 import argparse
 
-parser = argparse.Parser()
+parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--path", required=True)
-parser.add_argument("-d", "--dontsave", required=True)
+parser.add_argument("-s", "--save", required=True)
 args = parser.parse_args()
 
 data_path = Path(args.path)
@@ -31,14 +31,6 @@ class CSIAutoencoder(L.LightningModule):
         # output: 4*60*80 = 19200
         super().__init__()
         self.model = model
-
-    def forward(self, x: torch.Tensor):
-        out = self.layers(x)
-        if len(x.shape) == 2:
-            out = torch.reshape(out, (x.shape[0], 4, 64, 64))
-        else:
-            out = torch.reshape(out, (4, 64, 64))
-        return out
 
     def training_step(self, batch, batch_idx):
         inputs, targets = batch

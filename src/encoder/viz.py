@@ -21,7 +21,6 @@ def test_model(
     test_idx: torch.Tensor,
 ):
     Image.fromarray(photos[test_idx]).save(out_path / "test_photo.png")
-
     sd_pipeline.safety_checker = None
     test_input = inputs[test_idx]
     pred = model(test_input.unsqueeze(0))

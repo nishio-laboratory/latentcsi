@@ -43,19 +43,17 @@ def load_data(
             f"Latent data (targets/targets_latents.pt) not found in {path}"
         )
 
-    aux_data = []
+    aux = []
     for i in aux_data:
         file_path = filename_mapping[i]
         if file_path.exists():
             if clip:
-                aux_data.append(
-                    torch.load(file_path, weights_only=True)[:clip]
-                )
+                aux.append(torch.load(file_path, weights_only=True)[:clip])
             else:
-                aux_data.append(torch.load(file_path, weights_only=True))
+                aux.append(torch.load(file_path, weights_only=True))
         else:
             raise Exception(
                 f"Aux data {i} requires file at {file_path}, not found."
             )
 
-    return list(zip(csi, targets, *aux_data))
+    return list(zip(csi, targets, *aux))
