@@ -1,12 +1,16 @@
 import numpy as np
 import torch
-from transformers import SegformerImageProcessor, SegformerForSemanticSegmentation, pipeline
+from transformers import (
+    SegformerImageProcessor,
+    SegformerForSemanticSegmentation,
+    pipeline,
+)
 from PIL import Image
 import argparse
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-p', '--path')
+parser.add_argument("-p", "--path")
 path = Path(parser.parse_args().path)
 path = Path("/mnt/nas/esrh/csi_image_data/datasets/walking_test")
 
@@ -25,7 +29,9 @@ p = pipeline("image-segmentation", "nvidia/segformer-b0-finetuned-ade-512-512")
 seg_maps = []
 for i in photos:
     with torch.no_grad():
-        inputs = feature_extractor(images=Image.fromarray(i), return_tensors="pt").to(0)
+        inputs = feature_extractor(
+            images=Image.fromarray(i), return_tensors="pt"
+        ).to(0)
         out = model(**inputs).logits
     seg = torch.argmax(out, dim=1)
     seg_maps.append(seg)
@@ -181,7 +187,17 @@ mapping = {
     146: "radiator",
     147: "glass",
     148: "clock",
-    149: "flag"
+    149: "flag",
 }
-ranks = sorted([((seg_maps == i).count_nonzero().item(), mapping[i.item()], i.item()) for i in seg_maps.unique()], reverse=True)
+ranks = sorted(
+    [
+        ((seg_maps == i).count_nonzero().item(), mapping[i.item()], i.item())
+        for i in seg_maps.unique()
+    ],
+    reverse=True,
+)
 print(ranks)
+
+'''
+[(1111907, 'wall', 0), (224795, 'floor', 3), (211624, 'person', 12), (27046, 'bench', 69), (18204, 'table', 15), (11194, 'ceiling', 5), (7148, 'chair', 19), (5399, 'base', 40), (4401, 'bed ', 7), (4314, 'counter', 45), (3124, 'bag', 115), (2537, 'television receiver', 89), (1799, 'cabinet', 10), (1469, 'refrigerator', 50), (1015, 'plaything', 108), (762, 'swivel chair', 75), (756, 'computer', 74), (431, 'cradle', 117), (125, 'box', 41), (123, 'conveyer belt', 105), (83, 'monitor', 143), (54, 'basket', 112), (41, 'seat', 31), (25, 'crt screen', 141), (22, 'blanket', 131), (2, 'mirror', 27)]
+'''
