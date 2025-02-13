@@ -65,6 +65,8 @@ if __name__ == "__main__":
 
     utils.run_dist(
         run_inference,
-        lambda args: "targets_dists" if args.distribution else "targets_latents",
-        parser
+        lambda args: "targets_dists"
+        if args.distribution
+        else "targets_latents",
+        parser,
     )

@@ -31,10 +31,11 @@ RUN python3.10 -m pip install --no-cache-dir --upgrade pip uv==0.1.11 && \
     torch \
     torchvision \
     numpy \
-    scipy \
     diffusers \
     transformers \
     accelerate \
-    more-itertools
+    more-itertools \
+    lightning
+
 
 CMD ["/bin/bash"]

@@ -3,7 +3,10 @@
 
 import torch
 import torch.distributed as dist
-from transformers import SegformerForSemanticSegmentation, SegformerImageProcessor
+from transformers import (
+    SegformerForSemanticSegmentation,
+    SegformerImageProcessor,
+)
 import utils
 
 
@@ -27,10 +30,7 @@ def run_inference(rank, world_size, photos, formatter, args):
         return logits[selected_idxs].argmax(dim=0)
 
     out = compute(
-        photos,
-        rank,
-        world_size,
-        (photos[0].height // 4, photos[0].width // 4)
+        photos, rank, world_size, (photos[0].height // 4, photos[0].width // 4)
     )
 
     torch.save(out, formatter(args.path, rank))
@@ -38,7 +38,4 @@ def run_inference(rank, world_size, photos, formatter, args):
 
 
 if __name__ == "__main__":
-    utils.run_dist(
-        run_inference,
-        "targets_segmented"
-    )
+    utils.run_dist(run_inference, "targets_segmented")

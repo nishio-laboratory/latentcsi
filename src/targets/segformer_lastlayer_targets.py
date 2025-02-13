@@ -27,7 +27,7 @@ def run_inference(rank, world_size, photos, formatter, args):
         photos,
         rank,
         world_size,
-        (256, photos[0].height // 32, photos[0].width // 32)
+        (256, photos[0].height // 32, photos[0].width // 32),
     )
 
     torch.save(out, formatter(args.path, rank))
@@ -35,7 +35,4 @@ def run_inference(rank, world_size, photos, formatter, args):
 
 
 if __name__ == "__main__":
-    utils.run_dist(
-        run_inference,
-        "targets_seg"
-    )
+    utils.run_dist(run_inference, "targets_seg")
