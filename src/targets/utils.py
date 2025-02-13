@@ -66,7 +66,7 @@ def run_dist(
     (args.path / "targets").mkdir(exist_ok=True)
     (args.path / "targets" / "dist_work").mkdir(exist_ok=True)
 
-    photos = np.load(args.path / "photos_short.npy")
+    photos = np.load(args.path / "photos.npy")
     photos = [image_preprocessor(Image.fromarray(i)) for i in photos]
 
     formatter = partial(tmp_file_path_formatter, timestamp)
@@ -91,5 +91,5 @@ def run_dist(
 
     if callable(save_name):
         save_name = save_name(args)
-    torch.save(data, args.path / "targets" / save_name+".pt")
+    torch.save(data, args.path / "targets" / (save_name + ".pt"))
     shutil.rmtree(args.path / "targets" / "dist_work")
