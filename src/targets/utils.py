@@ -1,9 +1,9 @@
 import time
 import shutil
 import gc
-import torch.multiprocessing as mp
+from torch.multiprocessing.spawn import spawn
 from functools import partial
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional
 import torch
 import argparse
 from PIL import Image
@@ -19,8 +19,8 @@ def preprocess_resize(im: ImageType, left_offset=34) -> ImageType:
 
 
 def tmp_file_path_formatter(timestamp: str, data_path: str | Path, rank: int):
-    if data_path is str:
-        data_path = Path(str)
+    if isinstance(data_path, str):
+        data_path = Path(data_path)
     return (
         data_path / "targets" / "dist_work" / f"dist_{timestamp}_gpu{rank}.pt"
     )
@@ -31,7 +31,7 @@ def _chunk_process(
     data: list[torch.Tensor],
     rank: int,
     world_size: int,
-    dims: Tuple[int],
+    dims: list[int],
 ):
     chunk_size = len(data) // world_size
     out = torch.empty((chunk_size, *dims)).to("cpu")
@@ -50,7 +50,7 @@ def chunk_process(
 
 def run_dist(
     inference_func: Callable,
-    save_name: str | Callable[argparse.Namespace, str],
+    save_name: str | Callable[[argparse.Namespace], str],
     parser: Optional[argparse.ArgumentParser] = None,
     image_preprocessor: Callable[[ImageType], ImageType] = preprocess_resize,
 ):
@@ -73,7 +73,7 @@ def run_dist(
 
     # TODO torch pr for mp spawn kwargs
     # https://github.com/pytorch/pytorch/issues/73902
-    mp.spawn(
+    spawn(
         inference_func,
         args=(world_size, photos, formatter, args),
         nprocs=world_size,

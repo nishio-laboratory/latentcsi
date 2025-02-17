@@ -1,22 +1,26 @@
 # (setq python-shell-interpreter "/home/esrh/csi_to_image/activate_docker.sh")
 # (setq python-shell-intepreter-args "")
+from typing import cast
 
+from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 import utils
 import torch
 import argparse
 import torch.distributed as dist
-import diffusers
 from diffusers.image_processor import VaeImageProcessor
+from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
+from diffusers.models.modeling_outputs import AutoencoderKLOutput
 
 
 def run_inference(rank, world_size, photos, formatter, args):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
-    vae = diffusers.AutoencoderKL().from_pretrained(
+    vae = AutoencoderKL().from_pretrained(
         "/data/sd/sd-v1-5",
         subfolder="vae",
         use_safetensors=True,
         torch_dtype=torch.float16,
     )
+    vae = cast(AutoencoderKL, vae)
     image_processor = VaeImageProcessor(vae_scale_factor=8)
     vae.to(rank)
     gen = torch.Generator(rank)
@@ -28,17 +32,18 @@ def run_inference(rank, world_size, photos, formatter, args):
         if args.distribution:
             return vae._encode(img)
         else:
-            return vae.encode(img).latent_dist.sample(gen)
+            encoder_output = cast(AutoencoderKLOutput, vae.encode(img))
+            return encoder_output.latent_dist.sample(gen)
 
     out = compute(
         photos,
         rank,
         world_size,
-        (
+        [
             8 if args.distribution else 4,
             photos[0].height // 8,
             photos[0].width // 8,
-        ),
+        ],
     ).to("cpu")
 
     torch.save(out, formatter(args.path, rank))

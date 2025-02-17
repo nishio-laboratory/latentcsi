@@ -1,9 +1,10 @@
 from typing import List, Tuple, Any
+from pathlib import Path
 import torch
 from torch import nn
 from more_itertools import flatten
-
 import lightning as L
+
 
 class MLP(nn.Module):
     def __init__(
@@ -34,14 +35,13 @@ class MLP(nn.Module):
 class CSIAutoencoderBase(L.LightningModule):
     def __init__(self, layer_sizes, lr=5e-4):
         super().__init__()
-        self.train_seg = train_seg
         self.lr = lr
         self.model = MLP(layer_sizes)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(model.parameters(), lr=self.lr)
+        return torch.optim.Adam(self.model.parameters(), lr=self.lr)
 
-        def num_params(self):
+    def num_params(self):
         return sum(p.numel() for p in self.parameters())
 
     def save(self, ckpts_path: Path):

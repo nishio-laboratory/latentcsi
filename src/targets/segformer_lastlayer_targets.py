@@ -27,7 +27,7 @@ def run_inference(rank, world_size, photos, formatter, args):
         photos,
         rank,
         world_size,
-        (256, photos[0].height // 32, photos[0].width // 32),
+        [256, photos[0].height // 32, photos[0].width // 32],
     )
 
     torch.save(out, formatter(args.path, rank))

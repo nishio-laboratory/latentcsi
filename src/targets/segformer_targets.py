@@ -30,7 +30,7 @@ def run_inference(rank, world_size, photos, formatter, args):
         return logits[selected_idxs].argmax(dim=0)
 
     out = compute(
-        photos, rank, world_size, (photos[0].height // 4, photos[0].width // 4)
+        photos, rank, world_size, [photos[0].height // 4, photos[0].width // 4]
     )
 
     torch.save(out, formatter(args.path, rank))

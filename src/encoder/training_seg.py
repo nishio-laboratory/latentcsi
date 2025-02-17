@@ -1,19 +1,19 @@
 # (setq python-shell-interpreter "/home/esrh/csi_to_image/activate_docker.sh")
 # (setq python-shell-intepreter-args "-p")
-import sys
+from typing import cast
 import gc
 from base import MLP, CSIAutoencoderBase
 from data_utils import load_data
-from viz import test_model
-import diffusers
+from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
+from diffusers.models.autoencoders.vae import DecoderOutput
 import transformers
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from pathlib import Path
-import numpy as np
-from PIL import Image
 import lightning as L
 import argparse
+from lightning.pytorch.loggers import CSVLogger
+from lightning.pytorch.callbacks import EarlyStopping
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--path", required=True)
@@ -24,7 +24,9 @@ args = parser.parse_args()
 
 data_path = Path(args.path)
 dataset = load_data(data_path, aux_data=["seg_map"])
-data = DataLoader(dataset, num_workers=15, batch_size=args.batch_size)
+data = DataLoader(
+    cast(Dataset, dataset), num_workers=15, batch_size=args.batch_size
+)
 print("Loaded data")
 
 # ***
@@ -42,8 +44,12 @@ class CSIAutoencoder(L.LightningModule):
                 "nvidia/segformer-b0-finetuned-ade-512-512"
             )
         )
-        self.vae = diffusers.AutoencoderKL().from_pretrained(
-            data_path.parents[1] / "sd/sd-v1-5", subfolder="vae",
+        self.vae = cast(
+            AutoencoderKL,
+            AutoencoderKL().from_pretrained(
+                data_path.parents[1] / "sd/sd-v1-5",
+                subfolder="vae",
+            ),
         )
         self.vae.enable_tiling()
 
@@ -64,7 +70,10 @@ class CSIAutoencoder(L.LightningModule):
             self.log("tr_pixel_loss", loss)
             return loss
         else:
-            decoded = ((self.vae.decode(outputs).sample + 1) / 2).clamp(0, 1)
+            decoder_output = cast(
+                DecoderOutput, self.vae.decode(outputs)
+            ).sample
+            decoded = ((decoder_output + 1) / 2).clamp(0, 1)
             logits = self.segformer(decoded).logits
             loss = torch.nn.functional.cross_entropy(logits, segmaps)
             del decoded
@@ -81,20 +90,23 @@ class CSIAutoencoder(L.LightningModule):
     #     return loss
 
 
-
 # ***
 model = CSIAutoencoder([1992, 2000, 1000, 500, 1000, 2000, 16384])
+
+
 def make_trainer():
     return L.Trainer(
         max_epochs=args.max_epochs,
-        logger=L.pytorch.loggers.CSVLogger(save_dir=data_path / "logs"),
+        logger=CSVLogger(save_dir=data_path / "logs"),
         strategy="ddp_find_unused_parameters_true",
         precision=16,
-        callbacks = [L.pytorch.callbacks.EarlyStopping("tr_pixel_loss")]
+        callbacks=[EarlyStopping("tr_pixel_loss")],
     )
+
+
 trainer = make_trainer()
 trainer.fit(model, data)
-model.train_seg=True
+model.train_seg = True
 trainer = make_trainer()
 
 if args.save:

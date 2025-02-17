@@ -1,4 +1,5 @@
 import numpy as np
+from typing import cast
 import torch
 from transformers import (
     SegformerImageProcessor,
@@ -20,7 +21,9 @@ feature_extractor = SegformerImageProcessor.from_pretrained(
 )
 model = SegformerForSemanticSegmentation.from_pretrained(
     "nvidia/segformer-b0-finetuned-ade-512-512"
-).to(0)
+)
+model = cast(torch.nn.Module, model)
+model = model.to(0)
 p = pipeline("image-segmentation", "nvidia/segformer-b0-finetuned-ade-512-512")
 
 
