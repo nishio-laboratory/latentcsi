@@ -2,7 +2,7 @@
 # (setq python-shell-intepreter-args "-p")
 import sys
 import gc
-from mlp import MLP
+from base import MLP, CSIAutoencoderBase
 from data_utils import load_data
 from viz import test_model
 import diffusers
@@ -31,17 +31,12 @@ print("Loaded data")
 
 
 class CSIAutoencoder(L.LightningModule):
-    def __init__(self, model):
-        # input: 1992*2 = 3984 or 1992
-        # output: 4*60*80 = 19200
+    def __init__(self, layer_sizes, train_seg=False, lr=5e-4):
         super().__init__()
-        self.model = model
-        # self.feature_extractor = (
-        #     transformers.AutoImageProcessor.from_pretrained(
-        #         "nvidia/segformer-b0-finetuned-ade-512-512",
-        #         use_fast=False  # Segformer processor has no fast version
-        #     )
-        # )
+        # self.save_hyperparameters()
+        self.train_seg = train_seg
+        self.lr = lr
+        self.model = MLP(layer_sizes)
         self.segformer = (
             transformers.SegformerForSemanticSegmentation.from_pretrained(
                 "nvidia/segformer-b0-finetuned-ade-512-512"
@@ -64,7 +59,7 @@ class CSIAutoencoder(L.LightningModule):
         inputs, targets, segmaps = batch
         # print(inputs.shape, targets.shape, segmaps.shape)
         outputs = self.model(inputs)
-        if batch_idx % 2 == 0:
+        if not self.train_seg:
             loss = torch.nn.functional.mse_loss(outputs, targets)
             self.log("tr_pixel_loss", loss)
             return loss
@@ -85,24 +80,25 @@ class CSIAutoencoder(L.LightningModule):
     #     self.log("val_loss", loss)
     #     return loss
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(model.parameters(), lr=5e-4)
-
-    def num_params(self):
-        return sum(p.numel() for p in self.parameters())
 
 
 # ***
-model = CSIAutoencoder(MLP([1992, 1000, 500, 250, 500, 1000, 2000, 16384]))
-trainer = L.Trainer(
-    max_epochs=args.max_epochs,
-    logger=L.pytorch.loggers.CSVLogger(save_dir=data_path / "logs"),
-    strategy="ddp_find_unused_parameters_true",
-    precision=16
-)
+model = CSIAutoencoder([1992, 2000, 1000, 500, 1000, 2000, 16384])
+def make_trainer():
+    return L.Trainer(
+        max_epochs=args.max_epochs,
+        logger=L.pytorch.loggers.CSVLogger(save_dir=data_path / "logs"),
+        strategy="ddp_find_unused_parameters_true",
+        precision=16,
+        callbacks = [L.pytorch.callbacks.EarlyStopping("tr_pixel_loss")]
+    )
+trainer = make_trainer()
 trainer.fit(model, data)
+model.train_seg=True
+trainer = make_trainer()
 
 if args.save:
-    (data_path / "ckpts").mkdir(exist_ok=True)
-    torch.save(model, data_path / "ckpts" / "mlp_segloss_alt")
+    save_path = data_path / "ckpts"
+    save_path.mkdir(exist_ok=True)
+    model.save(save_path)
     print("Saved model")
