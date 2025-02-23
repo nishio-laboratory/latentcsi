@@ -1,6 +1,6 @@
 # (setq python-shell-interpreter "/home/esrh/csi_to_image/activate_docker.sh")
 # (setq python-shell-intepreter-args "-p")
-from base import MLP
+from base import MLP, CSIAutoencoderBase
 from typing import cast
 from data_utils import load_data
 import torch
@@ -14,6 +14,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--path", required=True)
 parser.add_argument("-s", "--save", required=True)
+parser.add_argument("-epochs", default=1, type=int)
 args = parser.parse_args()
 
 data_path = Path(args.path)
@@ -24,12 +25,11 @@ photos = np.load(data_path / "photos.npy")
 print("Loaded photos")
 
 
-class CSIAutoencoder(L.LightningModule):
-    def __init__(self, model):
+class CSIAutoencoder(CSIAutoencoderBase):
+    def __init__(self, layer_sizes, lr):
         # input: 1992*2 = 3984 or 1992
         # output: 4*60*80 = 19200
-        super().__init__()
-        self.model = model
+        super().__init__(layer_sizes, lr)
 
     def training_step(self, batch, batch_idx):
         inputs, targets = batch
@@ -44,18 +44,13 @@ class CSIAutoencoder(L.LightningModule):
         self.log("val_loss", loss)
         return loss
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(model.parameters(), lr=5e-4)
-
-    def num_params(self):
-        return sum(p.numel() for p in self.parameters())
-
 
 # ***
 
-model = CSIAutoencoder(MLP([1992, 1000, 500, 250, 500, 1000, 16384]))
+model = CSIAutoencoder([1992, 1000, 500, 250, 500, 1000, 16384], 5e-4)
+
 trainer = L.Trainer(
-    max_epochs=1,
+    max_epochs=args.epochs,
     logger=CSVLogger(save_dir=data_path / "logs"),
 )
 trainer.fit(model, data)

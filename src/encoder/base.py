@@ -13,7 +13,7 @@ class MLP(nn.Module):
         output_shape: Tuple[int, int, int] = (4, 64, 64),
     ):
         super().__init__()
-        self.layer_size = layer_sizes
+        self.layer_sizes = layer_sizes
         layers = [
             [nn.ReLU(), nn.Linear(x, y)] if n != 0 else [nn.Linear(x, y)]
             for n, (x, y) in enumerate(zip(layer_sizes, layer_sizes[1:]))
@@ -49,5 +49,5 @@ class CSIAutoencoderBase(L.LightningModule):
             model_name = "mlp"
         else:
             raise Exception("Unmapped model type")
-        save_name = model_name + "_" + "-".join(self.model.layer_sizes)
+        save_name = model_name + "_" + "-".join(map(str, self.model.layer_sizes))
         torch.save(self.model, ckpts_path / save_name)

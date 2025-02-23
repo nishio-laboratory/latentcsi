@@ -31,14 +31,11 @@ print("Loaded data")
 
 # ***
 
-
-class CSIAutoencoder(L.LightningModule):
+class CSIAutoencoder(CSIAutoencoderBase):
     def __init__(self, layer_sizes, train_seg=False, lr=5e-4):
-        super().__init__()
+        super().__init__(layer_sizes, lr)
         # self.save_hyperparameters()
         self.train_seg = train_seg
-        self.lr = lr
-        self.model = MLP(layer_sizes)
         self.segformer = (
             transformers.SegformerForSemanticSegmentation.from_pretrained(
                 "nvidia/segformer-b0-finetuned-ade-512-512"
@@ -93,7 +90,6 @@ class CSIAutoencoder(L.LightningModule):
 # ***
 model = CSIAutoencoder([1992, 2000, 1000, 500, 1000, 2000, 16384])
 
-
 def make_trainer():
     return L.Trainer(
         max_epochs=args.max_epochs,
@@ -106,8 +102,17 @@ def make_trainer():
 
 trainer = make_trainer()
 trainer.fit(model, data)
+
 model.train_seg = True
-trainer = make_trainer()
+trainer_2 = L.Trainer(
+        max_epochs=50,
+        logger=CSVLogger(save_dir=data_path / "logs"),
+        strategy="ddp_find_unused_parameters_true",
+        precision=16,
+        callbacks=[EarlyStopping("tr_pixel_loss")],
+    )
+trainer_2.fit(model, data)
+
 
 if args.save:
     save_path = data_path / "ckpts"
