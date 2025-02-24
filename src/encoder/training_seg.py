@@ -13,7 +13,10 @@ from pathlib import Path
 import lightning as L
 import argparse
 from lightning.pytorch.loggers import CSVLogger
-from lightning.pytorch.callbacks import EarlyStopping
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+
+if "H100" in torch.cuda.get_device_name(0):
+    torch.set_float32_matmul_precision('medium')
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--path", required=True)
@@ -23,9 +26,13 @@ parser.add_argument("-b", "--batch-size", default=16, type=int)
 args = parser.parse_args()
 
 data_path = Path(args.path)
-dataset = load_data(data_path, aux_data=["seg_map"])
-data = DataLoader(
-    cast(Dataset, dataset), num_workers=15, batch_size=args.batch_size
+dataset = cast(Dataset, load_data(data_path, aux_data=["seg_map"]))
+train, val, test = torch.utils.data.random_split(dataset, [0.8, 0.1, 0.1])
+train = DataLoader(
+    train, num_workers=15, batch_size=args.batch_size
+)
+val = DataLoader(
+    val, num_workers=15, batch_size=args.batch_size
 )
 print("Loaded data")
 
@@ -77,18 +84,22 @@ class CSIAutoencoder(CSIAutoencoderBase):
             del logits
             gc.collect()
             torch.cuda.empty_cache()
+            self.log("seg_loss", loss)
             return loss
 
-    # def validation_step(self, batch, batch_idx):
-    #     inputs, targets = batch
-    #     outputs = self.model(inputs)
-    #     loss = torch.nn.functional.mse_loss(outputs, targets)
-    #     self.log("val_loss", loss)
-    #     return loss
+    def validation_step(self, batch, batch_idx):
+        inputs, targets, _ = batch
+        outputs = self.model(inputs)
+        loss = torch.nn.functional.mse_loss(outputs, targets)
+        self.log("val_loss", loss, sync_dist=True, prog_bar=True, on_epoch=True)
+        return loss
 
 
 # ***
 model = CSIAutoencoder([1992, 2000, 1000, 500, 1000, 2000, 16384])
+
+
+ckpt_file_name = "mlp_seg_" + "-".join(map(str, model.model.layer_sizes)) + "{val_loss}"
 
 def make_trainer():
     return L.Trainer(
@@ -96,12 +107,12 @@ def make_trainer():
         logger=CSVLogger(save_dir=data_path / "logs"),
         strategy="ddp_find_unused_parameters_true",
         precision=16,
-        callbacks=[EarlyStopping("tr_pixel_loss")],
+        callbacks=[EarlyStopping("tr_pixel_loss", patience=15)],
     )
 
 
 trainer = make_trainer()
-trainer.fit(model, data)
+trainer.fit(model, train, val)
 
 model.train_seg = True
 trainer_2 = L.Trainer(
@@ -109,13 +120,9 @@ trainer_2 = L.Trainer(
         logger=CSVLogger(save_dir=data_path / "logs"),
         strategy="ddp_find_unused_parameters_true",
         precision=16,
-        callbacks=[EarlyStopping("tr_pixel_loss")],
+        callbacks=[ModelCheckpoint(
+            dirpath = data_path/"ckpts",
+            filename = ckpt_file_name
+        )] if args.save else []
     )
-trainer_2.fit(model, data)
-
-
-if args.save:
-    save_path = data_path / "ckpts"
-    save_path.mkdir(exist_ok=True)
-    model.save(save_path)
-    print("Saved model")
+trainer_2.fit(model, train, val)
