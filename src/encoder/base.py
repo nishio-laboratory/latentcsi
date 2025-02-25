@@ -37,6 +37,7 @@ class CSIAutoencoderBase(L.LightningModule):
         super().__init__()
         self.lr = lr
         self.model = MLP(layer_sizes)
+        self.save_hyperparameters()
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.model.parameters(), lr=self.lr)
@@ -49,5 +50,10 @@ class CSIAutoencoderBase(L.LightningModule):
             model_name = "mlp"
         else:
             raise Exception("Unmapped model type")
-        save_name = model_name + "_" + "-".join(map(str, self.model.layer_sizes))
+        save_name = (
+            model_name + "_" + "-".join(map(str, self.model.layer_sizes))
+        )
         torch.save(self.model, ckpts_path / save_name)
+
+    def forward(self, x: torch.Tensor):
+        return self.model.forward(x)

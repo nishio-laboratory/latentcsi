@@ -2,8 +2,8 @@
 # (setq python-shell-intepreter-args "-p")
 from typing import cast
 import gc
-from base import MLP, CSIAutoencoderBase
-from data_utils import load_data
+from src.encoder.base import MLP, CSIAutoencoderBase
+from src.encoder.data_utils import load_data
 from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
 from diffusers.models.autoencoders.vae import DecoderOutput
 import transformers
@@ -15,33 +15,12 @@ import argparse
 from lightning.pytorch.loggers import CSVLogger
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
-if "H100" in torch.cuda.get_device_name(0):
-    torch.set_float32_matmul_precision('medium')
-
-parser = argparse.ArgumentParser()
-parser.add_argument("-p", "--path", required=True)
-parser.add_argument("-s", "--save", action="store_true")
-parser.add_argument("-e", "--max-epochs", default=1, type=int)
-parser.add_argument("-b", "--batch-size", default=16, type=int)
-args = parser.parse_args()
-
-data_path = Path(args.path)
-dataset = cast(Dataset, load_data(data_path, aux_data=["seg_map"]))
-train, val, test = torch.utils.data.random_split(dataset, [0.8, 0.1, 0.1])
-train = DataLoader(
-    train, num_workers=15, batch_size=args.batch_size
-)
-val = DataLoader(
-    val, num_workers=15, batch_size=args.batch_size
-)
-print("Loaded data")
-
 # ***
 
+
 class CSIAutoencoder(CSIAutoencoderBase):
-    def __init__(self, layer_sizes, train_seg=False, lr=5e-4):
+    def __init__(self, layer_sizes, data_path: Path, train_seg=False, lr=5e-4):
         super().__init__(layer_sizes, lr)
-        # self.save_hyperparameters()
         self.train_seg = train_seg
         self.segformer = (
             transformers.SegformerForSemanticSegmentation.from_pretrained(
@@ -91,38 +70,67 @@ class CSIAutoencoder(CSIAutoencoderBase):
         inputs, targets, _ = batch
         outputs = self.model(inputs)
         loss = torch.nn.functional.mse_loss(outputs, targets)
-        self.log("val_loss", loss, sync_dist=True, prog_bar=True, on_epoch=True)
+        self.log(
+            "val_loss", loss, sync_dist=True, prog_bar=True, on_epoch=True
+        )
         return loss
 
 
 # ***
-model = CSIAutoencoder([1992, 2000, 1000, 500, 1000, 2000, 16384])
+def main():
+    if "H100" in torch.cuda.get_device_name(0):
+        torch.set_float32_matmul_precision("medium")
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--path", required=True)
+    parser.add_argument("-s", "--save", action="store_true")
+    parser.add_argument("-e", "--max-epochs", default=1, type=int)
+    parser.add_argument("-b", "--batch-size", default=16, type=int)
+    args = parser.parse_args()
 
-ckpt_file_name = "mlp_seg_" + "-".join(map(str, model.model.layer_sizes)) + "{val_loss}"
+    data_path = Path(args.path)
+    dataset = cast(Dataset, load_data(data_path, aux_data=["seg_map"]))
+    train, val, test = torch.utils.data.random_split(dataset, [0.8, 0.1, 0.1])
+    train = DataLoader(train, num_workers=15, batch_size=args.batch_size)
+    val = DataLoader(val, num_workers=15, batch_size=args.batch_size)
+    print("Loaded data")
 
-def make_trainer():
-    return L.Trainer(
-        max_epochs=args.max_epochs,
-        logger=CSVLogger(save_dir=data_path / "logs"),
-        strategy="ddp_find_unused_parameters_true",
-        precision=16,
-        callbacks=[EarlyStopping("tr_pixel_loss", patience=15)],
+    model = CSIAutoencoder(
+        [1992, 2000, 1000, 500, 1000, 2000, 16384], data_path
     )
 
+    ckpt_file_name = (
+        "mlp_seg_" + "-".join(map(str, model.model.layer_sizes)) + "{val_loss}"
+    )
 
-trainer = make_trainer()
-trainer.fit(model, train, val)
+    def make_trainer():
+        return L.Trainer(
+            max_epochs=args.max_epochs,
+            logger=CSVLogger(save_dir=data_path / "logs"),
+            strategy="ddp_find_unused_parameters_true",
+            precision=16,
+            callbacks=[EarlyStopping("tr_pixel_loss", patience=15)],
+        )
 
-model.train_seg = True
-trainer_2 = L.Trainer(
+    trainer = make_trainer()
+    trainer.fit(model, train, val)
+
+    model.train_seg = True
+    trainer_2 = L.Trainer(
         max_epochs=50,
         logger=CSVLogger(save_dir=data_path / "logs"),
         strategy="ddp_find_unused_parameters_true",
         precision=16,
-        callbacks=[ModelCheckpoint(
-            dirpath = data_path/"ckpts",
-            filename = ckpt_file_name
-        )] if args.save else []
+        callbacks=[
+            ModelCheckpoint(
+                dirpath=data_path / "ckpts", filename=ckpt_file_name
+            )
+        ]
+        if args.save
+        else [],
     )
-trainer_2.fit(model, train, val)
+    trainer_2.fit(model, train, val)
+
+
+if __name__ == "__main__":
+    main()
