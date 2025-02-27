@@ -16,10 +16,11 @@ def process_csi(csi: np.ndarray) -> torch.Tensor:
 
 
 class CSIDataset(Dataset):
-    def __init__(self,
-                 path: Path,
-                 aux_data: List[AuxDataTypes] = [],
-                 clip: Optional[int] = None,
+    def __init__(
+        self,
+        path: Path,
+        aux_data: List[AuxDataTypes] = [],
+        clip: Optional[int] = None,
     ):
         filename_mapping = {
             "latent_dists": (path / "targets" / "targets_dists.pt"),
@@ -58,6 +59,7 @@ class CSIDataset(Dataset):
                 )
 
         self.data = list(zip(csi, targets, *aux))
+
     def __len__(self):
         return len(self.data)
 

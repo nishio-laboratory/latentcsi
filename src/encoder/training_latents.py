@@ -10,6 +10,7 @@ import numpy as np
 import lightning as L
 from lightning.pytorch.loggers import CSVLogger
 import argparse
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
 
 class CSIAutoencoder(CSIAutoencoderBase):
@@ -30,6 +31,11 @@ class CSIAutoencoder(CSIAutoencoderBase):
         loss = torch.nn.functional.mse_loss(outputs, targets)
         self.log("val_loss", loss)
         return loss
+
+    def ckpt_name(self):
+        return (
+            "mlp_" + "-".join(map(str, self.model.layer_sizes)) + "{val_loss}"
+        )
 
 
 # ***
@@ -52,6 +58,13 @@ def main():
     trainer = L.Trainer(
         max_epochs=args.epochs,
         logger=CSVLogger(save_dir=data_path / "logs"),
+        strategy="ddp_find_unused_parameters_true",
+        callbacks=[
+            EarlyStopping("tr_pixel_loss", patience=15),
+            ModelCheckpoint(
+                dirpath=data_path / "ckpts", filename=model.ckpt_name()
+            ),
+        ],
     )
     trainer.fit(model, data)
 

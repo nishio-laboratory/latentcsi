@@ -42,19 +42,17 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--path", type=Path)
     parser.add_argument("--ckpt", type=str)
     parser.add_argument("--model")
-    parser.add_argument("--device", default = 0, type = int)
+    parser.add_argument("--device", default=0, type=int)
     args = parser.parse_args()
     if args.model == "autoencoder":
         model = training_latents.CSIAutoencoder
-        model = model.load_from_checkpoint(
-            args.path / "ckpts" / args.ckpt
-        )
+        model = model.load_from_checkpoint(args.path / "ckpts" / args.ckpt)
     elif args.model == "autoencoder_seg":
         model = training_seg.CSIAutoencoder
         model = model.load_from_checkpoint(
             args.path / "ckpts" / args.ckpt,
             data_path=args.path,
-            layer_sizes=[1992, 2000, 1000, 500, 1000, 2000, 16384]
+            layer_sizes=[1992, 2000, 1000, 500, 1000, 2000, 16384],
         )
     else:
         raise Exception("model type not valid")
@@ -62,9 +60,12 @@ if __name__ == "__main__":
     model.eval()
     model = model.to(args.device)
 
-    sd = cast(StableDiffusionImg2ImgPipeline, StableDiffusionImg2ImgPipeline.from_pretrained(
-        args.path.parents[1] / "sd/sd-v1-5"
-    )).to(model.device)
+    sd = cast(
+        StableDiffusionImg2ImgPipeline,
+        StableDiffusionImg2ImgPipeline.from_pretrained(
+            args.path.parents[1] / "sd/sd-v1-5"
+        ),
+    ).to(model.device)
     photos = np.load(args.path / "photos.npy")
     csi = np.load(args.path / "csi.npy")
     p = test_model(args.path, model, sd, photos, csi, 1445)
@@ -73,7 +74,7 @@ if __name__ == "__main__":
         p,
         strength=0.55,
         inference_steps=70,
-        guidance_scale=6
+        guidance_scale=6,
     ).images[0]
     img.save(args.path / "test_out.png")
 

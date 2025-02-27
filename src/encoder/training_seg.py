@@ -75,6 +75,13 @@ class CSIAutoencoder(CSIAutoencoderBase):
         )
         return loss
 
+    def ckpt_name(self):
+        return (
+            "mlp_seg_"
+            + "-".join(map(str, self.model.layer_sizes))
+            + "{val_loss}"
+        )
+
 
 # ***
 def main():
@@ -99,9 +106,7 @@ def main():
         [1992, 2000, 1000, 500, 1000, 2000, 16384], data_path
     )
 
-    ckpt_file_name = (
-        "mlp_seg_" + "-".join(map(str, model.model.layer_sizes)) + "{val_loss}"
-    )
+    ckpt_file_name = ()
 
     def make_trainer():
         return L.Trainer(
@@ -123,7 +128,7 @@ def main():
         precision=16,
         callbacks=[
             ModelCheckpoint(
-                dirpath=data_path / "ckpts", filename=ckpt_file_name
+                dirpath=data_path / "ckpts", filename=model.ckpt_name()
             )
         ]
         if args.save
