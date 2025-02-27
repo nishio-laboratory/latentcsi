@@ -2,7 +2,7 @@
 # (setq python-shell-intepreter-args "-p")
 from src.encoder.base import MLP, CSIAutoencoderBase
 from typing import cast
-from src.encoder.data_utils import load_data
+from src.encoder.data_utils import CSIDataset, load_data
 import torch
 from torch.utils.data import DataLoader, Dataset
 from pathlib import Path
@@ -41,7 +41,7 @@ def main():
     args = parser.parse_args()
 
     data_path = Path(args.path)
-    dataset = cast(Dataset, load_data(data_path))
+    dataset = CSIDataset(data_path)
     data = DataLoader(dataset)
     print("Loaded data")
     photos = np.load(data_path / "photos.npy")

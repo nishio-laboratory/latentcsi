@@ -3,7 +3,7 @@
 from typing import cast
 import gc
 from src.encoder.base import MLP, CSIAutoencoderBase
-from src.encoder.data_utils import load_data
+from src.encoder.data_utils import CSIDataset, load_data
 from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
 from diffusers.models.autoencoders.vae import DecoderOutput
 import transformers
@@ -89,7 +89,7 @@ def main():
     args = parser.parse_args()
 
     data_path = Path(args.path)
-    dataset = cast(Dataset, load_data(data_path, aux_data=["seg_map"]))
+    dataset = CSIDataset(data_path, aux_data=["seg_map"])
     train, val, test = torch.utils.data.random_split(dataset, [0.8, 0.1, 0.1])
     train = DataLoader(train, num_workers=15, batch_size=args.batch_size)
     val = DataLoader(val, num_workers=15, batch_size=args.batch_size)
