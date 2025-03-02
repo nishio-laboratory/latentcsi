@@ -2,7 +2,7 @@
 # (setq python-shell-intepreter-args "-p")
 from src.encoder.base import MLP, CSIAutoencoderBase
 from typing import cast
-from src.encoder.data_utils import CSIDataset, load_data
+from src.encoder.data_utils import CSIDataset
 import torch
 from torch.utils.data import DataLoader, Dataset
 from pathlib import Path
@@ -15,8 +15,6 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
 class CSIAutoencoder(CSIAutoencoderBase):
     def __init__(self, layer_sizes, lr):
-        # input: 1992*2 = 3984 or 1992
-        # output: 4*60*80 = 19200
         super().__init__(layer_sizes, lr)
 
     def training_step(self, batch, batch_idx):
@@ -42,18 +40,18 @@ class CSIAutoencoder(CSIAutoencoderBase):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--path", required=True)
-    parser.add_argument("-s", "--save", required=True)
+    parser.add_argument("-s", "--save", required=True, action="store_true")
     parser.add_argument("-epochs", default=1, type=int)
+    parser.add_argument("-b", "--batch-size", default=16, type=int)
     args = parser.parse_args()
 
     data_path = Path(args.path)
     dataset = CSIDataset(data_path)
-    data = DataLoader(dataset)
+    train, val, test = torch.utils.data.random_split(dataset, [0.8, 0.1, 0.1])
+    train, val, test = map(lambda ds: DataLoader(ds, batch_size=args.batch_size), (train, val, test))
     print("Loaded data")
-    photos = np.load(data_path / "photos.npy")
-    print("Loaded photos")
 
-    model = CSIAutoencoder([1992, 1000, 500, 250, 500, 1000, 16384], lr=5e-4)
+    model = CSIAutoencoder([342, 1000, 500, 250, 500, 1000, 16384], lr=5e-4)
 
     trainer = L.Trainer(
         max_epochs=args.epochs,
@@ -66,7 +64,8 @@ def main():
             ),
         ],
     )
-    trainer.fit(model, data)
+
+    trainer.fit(model, train, val)
 
     if args.save:
         (data_path / "ckpts").mkdir(exist_ok=True)
