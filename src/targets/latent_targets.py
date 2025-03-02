@@ -1,7 +1,6 @@
 # (setq python-shell-interpreter "/home/esrh/csi_to_image/activate_docker.sh")
 # (setq python-shell-intepreter-args "")
 from typing import cast
-
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 import utils
 import torch
@@ -15,10 +14,9 @@ from diffusers.models.modeling_outputs import AutoencoderKLOutput
 def run_inference(rank, world_size, photos, formatter, args):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     vae = AutoencoderKL().from_pretrained(
-        "/data/sd/sd-v1-5",
+        args.path.parents[1] / "sd/sd-v1-5",
         subfolder="vae",
-        use_safetensors=True,
-        torch_dtype=torch.float16,
+        use_safetensors=True
     )
     vae = cast(AutoencoderKL, vae)
     image_processor = VaeImageProcessor(vae_scale_factor=8)
@@ -28,7 +26,7 @@ def run_inference(rank, world_size, photos, formatter, args):
 
     @utils.chunk_process
     def compute(img):
-        img = image_processor.preprocess(img).to(device=rank, dtype=torch.half)
+        img = image_processor.preprocess(img).to(device=rank)
         if args.distribution:
             return vae._encode(img)
         else:
