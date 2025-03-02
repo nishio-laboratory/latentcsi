@@ -35,7 +35,7 @@ class CSIDataset(Dataset):
             self.targets = torch.load(
                 path / "targets" / "targets_latents.pt",
                 weights_only=True,
-                mmap=True
+                mmap=True,
             )
         else:
             raise Exception(
@@ -46,7 +46,9 @@ class CSIDataset(Dataset):
         for i in aux_data:
             file_path = filename_mapping[i]
             if file_path.exists():
-                self.aux.append(torch.load(file_path, weights_only=True, mmap=True))
+                self.aux.append(
+                    torch.load(file_path, weights_only=True, mmap=True)
+                )
             else:
                 raise Exception(
                     f"Aux data {i} requires file at {file_path}, not found."
@@ -56,13 +58,7 @@ class CSIDataset(Dataset):
         return len(self.csi)
 
     def __getitem__(self, index):
-        try:
-            out = [self.csi[index], self.targets[index]]
-        except:
-            print(index)
-            print(len(self.csi), len(self.targets))
-            import sys
-            sys.exit(1)
+        out = [self.csi[index], self.targets[index]]
         for i in self.aux:
             out.append(i[index])
         return tuple(out)

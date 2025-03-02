@@ -19,7 +19,9 @@ def preprocess_resize(im: ImageType, left_offset=34) -> ImageType:
     )
 
 
-def tmp_file_path_formatter(timestamp: str, data_path: Union[str, Path], rank: int):
+def tmp_file_path_formatter(
+    timestamp: str, data_path: Union[str, Path], rank: int
+):
     if isinstance(data_path, str):
         data_path = Path(data_path)
     return (

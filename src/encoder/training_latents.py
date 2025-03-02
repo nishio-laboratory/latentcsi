@@ -48,7 +48,10 @@ def main():
     data_path = Path(args.path)
     dataset = CSIDataset(data_path)
     train, val, test = torch.utils.data.random_split(dataset, [0.8, 0.1, 0.1])
-    train, val, test = map(lambda ds: DataLoader(ds, batch_size=args.batch_size), (train, val, test))
+    train, val, test = map(
+        lambda ds: DataLoader(ds, batch_size=args.batch_size, num_workers=15),
+        (train, val, test),
+    )
     print("Loaded data")
 
     model = CSIAutoencoder([342, 1000, 500, 250, 500, 1000, 16384], lr=5e-4)
@@ -58,7 +61,7 @@ def main():
         logger=CSVLogger(save_dir=data_path / "logs"),
         strategy="ddp_find_unused_parameters_true",
         callbacks=[
-            EarlyStopping("tr_pixel_loss", patience=15),
+            EarlyStopping("val_loss", patience=15),
             ModelCheckpoint(
                 dirpath=data_path / "ckpts", filename=model.ckpt_name()
             ),

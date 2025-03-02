@@ -16,7 +16,7 @@ def run_inference(rank, world_size, photos, formatter, args):
     vae = AutoencoderKL().from_pretrained(
         args.path.parents[1] / "sd/sd-v1-5",
         subfolder="vae",
-        use_safetensors=True
+        use_safetensors=True,
     )
     vae = cast(AutoencoderKL, vae)
     image_processor = VaeImageProcessor(vae_scale_factor=8)
