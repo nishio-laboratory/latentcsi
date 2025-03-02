@@ -47,12 +47,10 @@ for sx, subject in enumerate(subjects):
             amps[amps == -np.inf] = 0
             csi_frame = amps * np.exp(1j * phase)  # 3x114x10
             csi_frame = csi_frame.reshape((-1, 10)).transpose()  # 342x10 -> 10x342
-            csi[sx, ax, cx:cx + 10] = csi_frame
+            csi[sx, ax, 10*cx:10*cx + 10] = csi_frame
 
 images = np.repeat(images, 10, axis=2).reshape((-1, 512, 512, 3))
-csi = csi.reshape((-1, 114))
-
-from typing import cast
+csi = csi.reshape((-1, 342))
 
 args.save_path.mkdir(exist_ok=True)
 np.save(args.save_path / "photos.npy", images)
