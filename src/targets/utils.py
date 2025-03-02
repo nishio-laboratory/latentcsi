@@ -1,9 +1,10 @@
 import time
 import shutil
 import gc
+from tqdm import tqdm
 from torch.multiprocessing.spawn import spawn
 from functools import partial
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 import torch
 import argparse
 from PIL import Image
@@ -18,7 +19,7 @@ def preprocess_resize(im: ImageType, left_offset=34) -> ImageType:
     )
 
 
-def tmp_file_path_formatter(timestamp: str, data_path: str | Path, rank: int):
+def tmp_file_path_formatter(timestamp: str, data_path: Union[str, Path], rank: int):
     if isinstance(data_path, str):
         data_path = Path(data_path)
     return (
@@ -36,7 +37,7 @@ def _chunk_process(
     chunk_size = len(data) // world_size
     out = torch.empty((chunk_size, *dims)).to("cpu")
     with torch.no_grad():
-        for i in range(0, chunk_size):
+        for i in tqdm(range(0, chunk_size), total=chunk_size):
             idx = i + rank * chunk_size
             out[i] = f(data[idx])
     return out
@@ -50,7 +51,7 @@ def chunk_process(
 
 def run_dist(
     inference_func: Callable,
-    save_name: str | Callable[[argparse.Namespace], str],
+    save_name: Union[str, Callable[[argparse.Namespace], str]],
     parser: Optional[argparse.ArgumentParser] = None,
     image_preprocessor: Callable[[ImageType], ImageType] = preprocess_resize,
 ):
@@ -60,14 +61,18 @@ def run_dist(
     if not parser:
         parser = argparse.ArgumentParser()
 
-    parser.add_argument("-p", "--path", required=True)
+    parser.add_argument("-p", "--path", required=True, type=Path)
     args = parser.parse_args()
-    args.path = Path(args.path)
+
     (args.path / "targets").mkdir(exist_ok=True)
     (args.path / "targets" / "dist_work").mkdir(exist_ok=True)
 
     photos = np.load(args.path / "photos.npy")
-    photos = [image_preprocessor(Image.fromarray(i)) for i in photos]
+    # photos = [image_preprocessor(Image.fromarray(i)) for i in photos]
+    photos = [Image.fromarray(i) for i in photos]
+
+    if photos[0].size[0] != 512:
+        photos = [image_preprocessor(i) for i in photos]
 
     formatter = partial(tmp_file_path_formatter, timestamp)
 
