@@ -35,7 +35,9 @@ RUN python3.10 -m pip install --no-cache-dir --upgrade pip uv==0.1.11 && \
     transformers \
     accelerate \
     more-itertools \
-    lightning
+    lightning \
+    scipy \
+    tqdm
 
 
 CMD ["/bin/bash"]
