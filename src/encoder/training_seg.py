@@ -106,8 +106,6 @@ def main():
         [1992, 2000, 1000, 500, 1000, 2000, 16384], data_path
     )
 
-    ckpt_file_name = ()
-
     def make_trainer():
         return L.Trainer(
             max_epochs=args.max_epochs,
