@@ -1,0 +1,34 @@
+[connection]
+host = "tsubame"
+
+[sync.code]
+from = "~/prog/csi_to_image"
+to = "~"
+excludes = [".*", "__*", "lightning_logs", "env"]
+
+[exec]
+cmd = "python -m src.encoder.training_latents -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/walking -b 16 -e 200 -s" # required
+max_runtime = "10:00:00"
+name = "single"
+group = "tga-nlab"
+
+[exec.env]
+dir = "csi_to_image" # required, directory from which to run cmd
+modules = ["intel", "cuda"]
+python_deps = [
+"torch",
+"torchvision",
+"numpy",
+"diffusers",
+"transformers",
+"accelerate",
+"lightning",
+"more-itertools"
+]
+env_vars = {PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"}
+
+[exec.resource]
+type = "node_f"
+count = 1
+# type = "gpu_1"
+# count = 2
