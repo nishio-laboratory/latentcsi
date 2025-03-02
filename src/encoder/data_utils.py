@@ -20,7 +20,6 @@ class CSIDataset(Dataset):
         self,
         path: Path,
         aux_data: List[AuxDataTypes] = [],
-        clip: Optional[int] = None,
     ):
         filename_mapping = {
             "latent_dists": (path / "targets" / "targets_dists.pt"),
@@ -28,40 +27,42 @@ class CSIDataset(Dataset):
             "seg_map": (path / "targets" / "targets_segmented.pt"),
         }
         if (path / "csi.npy").exists():
-            csi = process_csi(np.load(path / "csi.npy"))
-            if clip:
-                csi = csi[:clip]
+            self.csi = process_csi(np.load(path / "csi.npy"))
         else:
             raise Exception(f"CSI data (csi.npy) not found in {path}")
 
         if (path / "targets" / "targets_latents.pt").exists():
-            targets = torch.load(
-                path / "targets" / "targets_latents.pt", weights_only=True
+            self.targets = torch.load(
+                path / "targets" / "targets_latents.pt",
+                weights_only=True,
+                mmap=True
             )
-            if clip:
-                targets = targets[:clip]
         else:
             raise Exception(
                 f"Latent data (targets/targets_latents.pt) not found in {path}"
             )
 
-        aux = []
+        self.aux = []
         for i in aux_data:
             file_path = filename_mapping[i]
             if file_path.exists():
-                if clip:
-                    aux.append(torch.load(file_path, weights_only=True)[:clip])
-                else:
-                    aux.append(torch.load(file_path, weights_only=True))
+                self.aux.append(torch.load(file_path, weights_only=True, mmap=True))
             else:
                 raise Exception(
                     f"Aux data {i} requires file at {file_path}, not found."
                 )
 
-        self.data = list(zip(csi, targets, *aux))
-
     def __len__(self):
-        return len(self.data)
+        return len(self.csi)
 
     def __getitem__(self, index):
-        return self.data.__getitem__(index)
+        try:
+            out = [self.csi[index], self.targets[index]]
+        except:
+            print(index)
+            print(len(self.csi), len(self.targets))
+            import sys
+            sys.exit(1)
+        for i in self.aux:
+            out.append(i[index])
+        return tuple(out)
