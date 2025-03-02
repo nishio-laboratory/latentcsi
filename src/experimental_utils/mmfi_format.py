@@ -9,6 +9,7 @@ from src.targets.utils import preprocess_resize
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--path", required=True, type=Path)
 parser.add_argument("-s", "--save-path", required=True, type=Path)
+parser.add_argument("--subjects-trunc", type=int, default=-1)
 parser.add_argument(
     "-e", "--env",
     type=int,
@@ -25,13 +26,16 @@ parser.add_argument(
 args = parser.parse_args()
 path = args.path
 subjects = list((path / f"E{args.env:02d}").glob("*"))
+if args.subjects_trunc != -1:
+    subjects = subjects[:args.subjects_trunc]
 
-images = np.zeros((len(subjects), len(args.activities), 259, 512, 512, 3), dtype=np.uint8)
-csi = np.zeros((len(subjects), len(args.activities), 2590, 114), dtype=complex)
+images = np.zeros((len(subjects), len(args.activities), 297, 512, 512, 3), dtype=np.uint8)
+csi = np.zeros((len(subjects), len(args.activities), 2970, 3*114), dtype=complex)
 
+np.seterr(all='raise')
 for sx, subject in enumerate(subjects):
     print(f"Subject {sx}")
-    for ax, activity in tqdm(enumerate(args.activities)):
+    for ax, activity in tqdm(enumerate(args.activities), total=len(args.activities)):
         root = (subject / f"A{activity:02d}")
         rgbs = (root / "rgb").glob("*")
         for px, photo_path in enumerate((root / "rgb").glob("*")):
@@ -40,7 +44,10 @@ for sx, subject in enumerate(subjects):
         for cx, csi_path in enumerate((root / "wifi-csi").glob("*")):
             raw = loadmat(csi_path)
             amps, phase = raw["CSIamp"], raw["CSIphase"]
-            csi[sx, ax, cx] = amps * np.exp(1j * phase)
+            amps[amps == -np.inf] = 0
+            csi_frame = amps * np.exp(1j * phase)  # 3x114x10
+            csi_frame = csi_frame.reshape((-1, 10)).transpose()  # 342x10 -> 10x342
+            csi[sx, ax, cx:cx + 10] = csi_frame
 
 images = np.repeat(images, 10, axis=2).reshape((-1, 512, 512, 3))
 csi = csi.reshape((-1, 114))
