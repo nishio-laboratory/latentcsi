@@ -21,13 +21,16 @@ class CSIAutoencoder(CSIAutoencoderBase):
         inputs, targets = batch
         outputs = self.model(inputs)
         loss = torch.nn.functional.mse_loss(outputs, targets)
+        self.log("train_loss", loss, sync_dist=True)
         return loss
 
     def validation_step(self, batch, batch_idx):
         inputs, targets = batch
         outputs = self.model(inputs)
         loss = torch.nn.functional.mse_loss(outputs, targets)
-        self.log("val_loss", loss)
+        self.log(
+            "val_loss", loss, sync_dist=True, prog_bar=True, on_epoch=True
+        )
         return loss
 
     def ckpt_name(self):
