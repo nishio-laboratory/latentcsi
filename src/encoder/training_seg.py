@@ -3,7 +3,7 @@
 from typing import cast
 import gc
 from src.encoder.base import MLP, CSIAutoencoderBase
-from src.encoder.data_utils import CSIDataset, load_data
+from src.encoder.data_utils import CSIDataset
 from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
 from diffusers.models.autoencoders.vae import DecoderOutput
 import transformers

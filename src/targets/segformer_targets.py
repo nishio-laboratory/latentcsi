@@ -8,6 +8,7 @@ from transformers import (
     SegformerImageProcessor,
 )
 import utils
+from PIL import Image
 
 
 def run_inference(rank, world_size, photos, formatter, args):
@@ -25,6 +26,9 @@ def run_inference(rank, world_size, photos, formatter, args):
 
     @utils.chunk_process
     def compute(img):
+        img = Image.fromarray(img)
+        if photos[0].size[0] != 512:
+            img = utils.preprocess_resize(img)
         inputs = feature_extractor(images=img, return_tensors="pt").to(rank)
         logits = model(**inputs).logits.squeeze()
         return logits[selected_idxs].argmax(dim=0)

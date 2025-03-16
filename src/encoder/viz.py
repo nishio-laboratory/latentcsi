@@ -1,7 +1,7 @@
 from pathlib import Path
 import argparse
 import torch
-import diffusers
+import sys
 from typing import List, cast
 from torchvision.transforms.functional import to_pil_image
 from PIL import Image
@@ -24,11 +24,9 @@ def test_model(
     out_path: Path,
     model: torch.nn.Module,
     sd_pipeline: StableDiffusionImg2ImgPipeline,
-    photos: List[np.ndarray],
     inputs: np.ndarray,
     test_idx: int,
 ):
-    Image.fromarray(photos[test_idx]).save(out_path / "test_photo.png")
     sd_pipeline.safety_checker = None
     test_input = process_csi(inputs[test_idx]).unsqueeze(0)
     test_input = test_input.to(model.device)
@@ -39,11 +37,20 @@ def test_model(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--path", type=Path)
+    parser.add_argument("-p", "--path", type=Path, required=True)
     parser.add_argument("--ckpt", type=str)
-    parser.add_argument("--model")
+    parser.add_argument("--model", type=str)
+    parser.add_argument("--index", type=int)
     parser.add_argument("--device", default=0, type=int)
+    parser.add_argument("--photo_only", action="store_true", default=False)
     args = parser.parse_args()
+
+    photos = np.load(args.path / "photos.npy", mmap_mode="r")
+    if args.photo_only:
+        Image.fromarray(photos[args.index]).save(args.path / "test_photo.png")
+        print(f"Saved photo f{args.index} / f{len(photos)}")
+        sys.exit(0)
+
     if args.model == "autoencoder":
         model = training_latents.CSIAutoencoder
         model = model.load_from_checkpoint(args.path / "ckpts" / args.ckpt)
@@ -66,9 +73,10 @@ if __name__ == "__main__":
             args.path.parents[1] / "sd/sd-v1-5"
         ),
     ).to(model.device)
-    photos = np.load(args.path / "photos.npy")
-    csi = np.load(args.path / "csi.npy")
-    p = test_model(args.path, model, sd, photos, csi, 1445)
+
+    csi = np.load(args.path / "csi.npy", mmap_mode="r")
+
+    p = test_model(args.path, model, sd, csi, args.index)
     img = sd(
         "photograph of a man wearing a white hoodie in a clean room, 4k, realistic, high resolution",
         p,

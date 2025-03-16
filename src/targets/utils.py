@@ -69,12 +69,7 @@ def run_dist(
     (args.path / "targets").mkdir(exist_ok=True)
     (args.path / "targets" / "dist_work").mkdir(exist_ok=True)
 
-    photos = np.load(args.path / "photos.npy")
-    # photos = [image_preprocessor(Image.fromarray(i)) for i in photos]
-    photos = [Image.fromarray(i) for i in photos]
-
-    if photos[0].size[0] != 512:
-        photos = [image_preprocessor(i) for i in photos]
+    photos = np.load(args.path / "photos.npy", mmap_mode="r")
 
     formatter = partial(tmp_file_path_formatter, timestamp)
 
@@ -91,7 +86,7 @@ def run_dist(
 
     data = torch.concat(
         [
-            torch.load(formatter(args.path, i), weights_only=False)
+            torch.load(formatter(args.path, i), weights_only=False, mmap=True)
             for i in range(world_size)
         ]
     )

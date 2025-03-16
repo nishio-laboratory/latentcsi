@@ -9,6 +9,14 @@ import torch.distributed as dist
 from diffusers.image_processor import VaeImageProcessor
 from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
 from diffusers.models.modeling_outputs import AutoencoderKLOutput
+from PIL import Image
+from PIL.Image import Image as ImageType
+
+
+def preprocess_resize(im: ImageType, left_offset=34) -> ImageType:
+    return im.resize((640, 512), resample=Image.Resampling.BICUBIC).crop(
+        (left_offset, 0, 512 + left_offset, 512)
+    )
 
 
 def run_inference(rank, world_size, photos, formatter, args):
@@ -26,6 +34,9 @@ def run_inference(rank, world_size, photos, formatter, args):
 
     @utils.chunk_process
     def compute(img):
+        img = Image.fromarray(img)
+        if len(photos[0]) != 512:
+            img = preprocess_resize(img)
         img = image_processor.preprocess(img).to(device=rank)
         if args.distribution:
             return vae._encode(img)
@@ -39,8 +50,8 @@ def run_inference(rank, world_size, photos, formatter, args):
         world_size,
         [
             8 if args.distribution else 4,
-            photos[0].height // 8,
-            photos[0].width // 8,
+            len(photos[0]) // 8,
+            len(photos[0][0]) // 8,
         ],
     ).to("cpu")
 

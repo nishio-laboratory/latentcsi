@@ -1,3 +1,4 @@
 .*
 __*
 lightning_logs
+env/*

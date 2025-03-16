@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image
 from src.targets.utils import preprocess_resize
 
+# python -m src.experimental_utils.mmfi_format -p /mmfi/MMFi_rgb_wifi/ -s /data/datasets/mmfi_hands_all -e 3 -a 13 14 17 18
 parser = argparse.ArgumentParser()
 parser.add_argument("-p", "--path", required=True, type=Path)
 parser.add_argument("-s", "--save-path", required=True, type=Path)

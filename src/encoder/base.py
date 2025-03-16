@@ -31,6 +31,9 @@ class MLP(nn.Module):
             out = torch.reshape(out, self.output_shape)
         return out
 
+    def num_params(self):
+        return sum(p.numel() for p in self.parameters())
+
 
 class CSIAutoencoderBase(L.LightningModule):
     def __init__(self, layer_sizes, lr=5e-4):
@@ -41,9 +44,6 @@ class CSIAutoencoderBase(L.LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.model.parameters(), lr=self.lr)
-
-    def num_params(self):
-        return sum(p.numel() for p in self.parameters())
 
     def save(self, ckpts_path: Path):
         if isinstance(self.model, MLP):
