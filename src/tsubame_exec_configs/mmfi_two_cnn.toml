@@ -1,0 +1,33 @@
+[connection]
+host = "tsubame"
+
+[sync.code]
+from = "~/prog/csi_to_image"
+to = "~"
+excludes = [".*", "__*", "lightning_logs", "env"]
+
+[exec]
+cmd = ["python -m src.encoder.training_cnn -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/mmfi_hands_two -n mlp_cnn_3 --epochs 1000 -b 32 --layer-sizes 1000 500",
+]
+max_runtime = "10:00:00"
+name = "mmfi_two_cnn"
+group = "tga-nlab"
+
+[exec.env]
+dir = "csi_to_image" # required, directory from which to run cmd
+modules = ["intel", "cuda"]
+python_deps = [
+"torch",
+"torchvision",
+"numpy",
+"diffusers",
+"transformers",
+"accelerate",
+"lightning",
+"more-itertools"
+]
+env_vars = {PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"}
+
+[exec.resource]
+type = "node_f"
+count = 1

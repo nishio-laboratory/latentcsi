@@ -11,27 +11,19 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img impo
 )
 import numpy as np
 
-from src.encoder import training_latents, training_seg
+from src.encoder import training_latents, training_cnn
 from src.encoder.data_utils import process_csi
 
-
-def save_pred_latent(out_path: Path, pred: torch.Tensor, sd_pipeline):
-    decoded = (sd_pipeline.vae.decode(pred).sample + 1) / 2
-    to_pil_image(decoded.squeeze()).save(out_path)
-
+def decode(sd, pred) -> PILImage:
+    return to_pil_image(((sd.vae.decode(pred).sample + 1) / 2).squeeze())
 
 def test_model(
-    out_path: Path,
     model: torch.nn.Module,
-    sd_pipeline: StableDiffusionImg2ImgPipeline,
-    inputs: np.ndarray,
-    test_idx: int,
+    input: np.ndarray,
 ):
-    sd_pipeline.safety_checker = None
-    test_input = process_csi(inputs[test_idx]).unsqueeze(0)
+    test_input = process_csi(input).unsqueeze(0)
     test_input = test_input.to(model.device)
     pred = model(test_input).to(model.device)
-    save_pred_latent(out_path / "test_latent.png", pred, sd_pipeline)
     return pred * 0.18215
 
 
@@ -46,21 +38,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     photos = np.load(args.path / "photos.npy", mmap_mode="r")
+    Image.fromarray(photos[args.index]).save(args.path / "test_photo.png")
+    print(f"Saved photo {args.index} / {len(photos)}")
     if args.photo_only:
-        Image.fromarray(photos[args.index]).save(args.path / "test_photo.png")
-        print(f"Saved photo f{args.index} / f{len(photos)}")
         sys.exit(0)
 
     if args.model == "autoencoder":
         model = training_latents.CSIAutoencoder
         model = model.load_from_checkpoint(args.path / "ckpts" / args.ckpt)
-    elif args.model == "autoencoder_seg":
-        model = training_seg.CSIAutoencoder
-        model = model.load_from_checkpoint(
-            args.path / "ckpts" / args.ckpt,
-            data_path=args.path,
-            layer_sizes=[1992, 2000, 1000, 500, 1000, 2000, 16384],
-        )
+    elif args.model == "mlp_cnn":
+        model = training_cnn.CSIAutoencoderMLP_CNN
+        model = model.load_from_checkpoint(args.path / "ckpts" / args.ckpt)
     else:
         raise Exception("model type not valid")
 
@@ -73,12 +61,15 @@ if __name__ == "__main__":
             args.path.parents[1] / "sd/sd-v1-5"
         ),
     ).to(model.device)
+    sd.safety_checker = None
 
     csi = np.load(args.path / "csi.npy", mmap_mode="r")
 
-    p = test_model(args.path, model, sd, csi, args.index)
+    p = test_model(model, csi[args.index])
+    decode(sd, p / 0.18215).save(args.path / "test_latent.png")
+
     img = sd(
-        "photograph of a man wearing a white hoodie in a clean room, 4k, realistic, high resolution",
+        "photograph of a man in a clean room, 4k, realistic, high resolution",
         p,
         strength=0.55,
         inference_steps=70,
