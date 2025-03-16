@@ -66,9 +66,10 @@ if __name__ == "__main__":
     test_preds = torch.zeros(len(test), 4, 64, 64).to(args.device)
     total_loss = 0
     for n, (i, (x, y)) in tqdm(enumerate(zip(test_indices, iter(test))), total=len(test_indices)):
-        p = model(x.to(args.device)).to(args.device)
-        test_preds[n] = p.unsqueeze(0)
+        x = x.to(args.device)
         y = y.to(args.device)
+        p = model(x.unsqueeze(0)).to(args.device)
+        test_preds[n] = p.squeeze()
         total_loss += torch.nn.functional.mse_loss(p, y)
         if args.save and sd:
             decode(sd, p.unsqueeze(0)).save(inf_path / f"l_{n}.png")
