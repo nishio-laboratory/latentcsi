@@ -83,7 +83,7 @@ class CNNDecoder(nn.Module):
         self.base_channels = base_channels
 
         # 1) Linear layer from input_dim -> base_channels * 8 * 8
-        self.fc = nn.Linear(input_dim, base_channels * 4 * 4)
+        self.fc = nn.Linear(input_dim, base_channels * 8 * 8)
 
         # 2) A series of "UpBlock"s that progressively double resolution:
         #    (8 -> 16), (16 -> 32), (32 -> 64)
@@ -96,16 +96,13 @@ class CNNDecoder(nn.Module):
         self.up3 = UpsampleBlock(
             base_channels // 4, base_channels // 8
         )  # 32x32 -> 64x64
-        self.up4 = UpsampleBlock(
-            base_channels // 8, base_channels // 16
-        )  # 32x32 -> 64x64
 
         # 3) A final ResBlock and 3x3 Conv2d that go from base_channels//8 -> 4 output channels
         self.final_res = ResidualBlock(
-            base_channels // 16, base_channels // 16
+            base_channels // 8, base_channels // 8
         )
         self.final_conv = nn.Conv2d(
-            base_channels // 16, 4, kernel_size=3, padding=1
+            base_channels // 8, 4, kernel_size=3, padding=1
         )
 
     def forward(self, x):
@@ -114,13 +111,12 @@ class CNNDecoder(nn.Module):
 
         # 1) Linear projection, then reshape to [batch_size, base_channels, 8, 8]
         x = self.fc(x)
-        x = x.view(batch_size, self.base_channels, 4, 4)
+        x = x.view(batch_size, self.base_channels, 8, 8)
 
         # 2) Apply up blocks
         x = self.up1(x)  # -> [batch, base_channels//2, 16, 16]
         x = self.up2(x)  # -> [batch, base_channels//4, 32, 32]
         x = self.up3(x)  # -> [batch, base_channels//8, 64, 64]
-        x = self.up4(x)  # -> [batch, base_channels//8, 64, 64]
 
         # 3) Final refining ResBlock + Conv2d => [batch, 4, 64, 64]
         x = self.final_res(x)

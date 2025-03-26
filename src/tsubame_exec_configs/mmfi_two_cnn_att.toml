@@ -4,19 +4,20 @@ tsubame_validation = true
 host = "tsubame"
 
 [sync.code]
-from = "~/prog/csi_to_image"
-to = "~"
+from = "~/prog/csi_to_image/"
+to = "~/alt/"
 excludes = [".*", "__*", "lightning_logs", "env"]
 
 [exec]
-cmd = ["python -m src.encoder.training_cnn -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/mmfi_hands_two -n $name --epochs 1000 -b 32 --base-channels 2048",
+name = "mmfi_two_cnn_vaelike_attention_768_4step"
+cmd = ["python -m src.encoder.training_cnn_att -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/mmfi_hands_two -n $name --epochs 1000 -b 32 --base-channels 512",
 ]
+
 max_runtime = "10:00:00"
-name = "mmfi_two_cnn_vaelike_noenc_2048"
 group = "tga-nlab"
 
 [exec.env]
-dir = "csi_to_image" # required, directory from which to run cmd
+dir = "alt/csi_to_image" # required, directory from which to run cmd
 modules = ["intel", "cuda"]
 python_deps = [
 "torch",

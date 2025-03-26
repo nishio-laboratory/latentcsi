@@ -1,23 +1,19 @@
 # (setq python-shell-interpreter "/home/esrh/csi_to_image/activate_docker.sh")
 # (setq python-shell-intepreter-args "-p")
-from src.encoder.base import CSIAutoencoderBase
 from typing import cast, Union, List
 from src.encoder.data_utils import CSIDataset
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from torchvision import ops
 from pathlib import Path
-import numpy as np
 import lightning as L
 from lightning.pytorch.loggers import CSVLogger
 import argparse
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
 # ***
-
-
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
@@ -52,83 +48,125 @@ class ResidualBlock(nn.Module):
         return x + self.residual_layer(residue)
 
 
-class UpsampleBlock(nn.Sequential):
-    """
-    An upsampling block that:
-     - Stacks 2 residual blocks
-     - Upsamples by 2x via a ConvTranspose2d (stride=2)
-    """
 
-    def __init__(self, in_channels, out_channels):
-        super().__init__(
-            ResidualBlock(in_channels, out_channels),
-            ResidualBlock(out_channels, out_channels),
-            nn.ConvTranspose2d(
-                out_channels, out_channels, kernel_size=2, stride=2
-            ),
-        )
+class CrossAttentionBlock(nn.Module):
+    """
+    Cross-attention block that attends a spatial feature map to a 1D conditioning vector,
+    using PyTorch's nn.MultiheadAttention.
 
+    The spatial feature map is first reshaped to (L, B, C) where L = H*W.
+    The conditioning vector (of dimension cond_dim) is projected to form key and value tokens.
+    """
+    def __init__(self, hidden_dim, cond_dim, n_heads=4):
+        super().__init__()
+        self.n_heads = n_heads
+        # Use PyTorch's built-in MultiheadAttention.
+        self.mha = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=n_heads)
+        # Project the spatial feature (query) and conditioning vector (key and value) to the same dimension.
+        self.to_q = nn.Linear(hidden_dim, hidden_dim, bias=False)
+        self.to_k = nn.Linear(cond_dim, hidden_dim, bias=False)
+        self.to_v = nn.Linear(cond_dim, hidden_dim, bias=False)
+        self.out_proj = nn.Linear(hidden_dim, hidden_dim, bias=False)
+
+    def forward(self, x, cond):
+        """
+        x: (B, C, H, W) spatial feature map (with C == hidden_dim)
+        cond: (B, cond_dim) 1D conditioning vector
+        """
+        b, c, h, w = x.shape
+        # Reshape spatial feature map to (B, L, C) where L = H*W.
+        x_reshaped = x.permute(0, 2, 3, 1).contiguous().view(b, h * w, c)
+
+        # Project spatial features to queries.
+        q = self.to_q(x_reshaped)  # (B, L, hidden_dim)
+
+        # Process the conditioning vector as a single token.
+        cond_token = cond.unsqueeze(1)  # (B, 1, cond_dim)
+        k = self.to_k(cond_token)         # (B, 1, hidden_dim)
+        v = self.to_v(cond_token)         # (B, 1, hidden_dim)
+
+        # nn.MultiheadAttention expects (sequence_length, batch, embed_dim)
+        q = q.transpose(0, 1)  # (L, B, hidden_dim)
+        k = k.transpose(0, 1)  # (1, B, hidden_dim)
+        v = v.transpose(0, 1)  # (1, B, hidden_dim)
+
+        # Compute attention (we ignore the attention weights).
+        attn_output, _ = self.mha(q, k, v)
+
+        # Bring output back to (B, L, hidden_dim)
+        attn_output = attn_output.transpose(0, 1)
+        # Final linear projection.
+        attn_output = self.out_proj(attn_output)
+        # Residual connection.
+        x_reshaped = x_reshaped + attn_output
+
+        # Reshape back to (B, C, H, W)
+        x_out = x_reshaped.view(b, h, w, c).permute(0, 3, 1, 2).contiguous()
+        return x_out
+
+class UpSampleBlock(nn.Module):
+    """
+    Upsample block that:
+      1) Applies two ResidualBlocks,
+      2) Optionally applies a CrossAttentionBlock using the original 1D vector as conditioning,
+      3) Upsamples the feature map using a ConvTranspose2d.
+    """
+    def __init__(self, in_c, out_c, cond_dim, n_heads=4, apply_attention=True):
+        super().__init__()
+        self.res1 = ResidualBlock(in_c, out_c)
+        self.res2 = ResidualBlock(out_c, out_c)
+        self.apply_attention = apply_attention
+        if self.apply_attention:
+            self.cross_attn = CrossAttentionBlock(out_c, cond_dim, n_heads=n_heads)
+        self.upsample = nn.ConvTranspose2d(out_c, out_c, kernel_size=2, stride=2)
+
+    def forward(self, x, cond):
+        x = self.res1(x)
+        x = self.res2(x)
+        if self.apply_attention:
+            x = self.cross_attn(x, cond)
+        x = self.upsample(x)
+        return x
+
+# --------------------------------------------------------
+#  Main Model
+# --------------------------------------------------------
 
 class CNNDecoder(nn.Module):
     """
-    A module that:
-     1. Takes a 1D vector of length `input_dim` (e.g., 500).
-     2. Linear -> reshape to (base_channels, 8, 8).
-     3. UpBlock x 3 -> final res block -> final conv -> output (4, 64, 64).
+    A latent-space generator that:
+      1) Projects a 1D input vector of size `input_dim` into a 2D tensor of shape (base_channels, 8, 8),
+      2) Applies 3 upsample blocks (8x8 -> 16x16 -> 32x32 -> 64x64). Only the last two blocks use cross-attention.
+      3) Uses a final convolution to produce a 4-channel output.
     """
-
-    def __init__(self, input_dim=500, base_channels=1024):
+    def __init__(self, input_dim=342, base_channels=512, n_heads=4):
         super().__init__()
         self.input_dim = input_dim
         self.base_channels = base_channels
 
-        # 1) Linear layer from input_dim -> base_channels * 8 * 8
         self.fc = nn.Linear(input_dim, base_channels * 4 * 4)
 
-        # 2) A series of "UpBlock"s that progressively double resolution:
-        #    (8 -> 16), (16 -> 32), (32 -> 64)
-        self.up1 = UpsampleBlock(
-            base_channels, base_channels // 2
-        )  # 8x8 -> 16x16
-        self.up2 = UpsampleBlock(
-            base_channels // 2, base_channels // 4
-        )  # 16x16 -> 32x32
-        self.up3 = UpsampleBlock(
-            base_channels // 4, base_channels // 8
-        )  # 32x32 -> 64x64
-        self.up4 = UpsampleBlock(
-            base_channels // 8, base_channels // 16
-        )  # 32x32 -> 64x64
+        self.up1 = UpSampleBlock(base_channels, base_channels, cond_dim=input_dim, n_heads=n_heads, apply_attention=False)
+        self.up2 = UpSampleBlock(base_channels, base_channels, cond_dim=input_dim, n_heads=n_heads, apply_attention=True)
+        self.up3 = UpSampleBlock(base_channels, base_channels, cond_dim=input_dim, n_heads=n_heads, apply_attention=True)
+        self.up4 = UpSampleBlock(base_channels, base_channels, cond_dim=input_dim, n_heads=n_heads, apply_attention=True)
 
-        # 3) A final ResBlock and 3x3 Conv2d that go from base_channels//8 -> 4 output channels
-        self.final_res = ResidualBlock(
-            base_channels // 16, base_channels // 16
-        )
-        self.final_conv = nn.Conv2d(
-            base_channels // 16, 4, kernel_size=3, padding=1
-        )
+        self.out_conv = nn.Conv2d(base_channels, 4, kernel_size=3, padding=1)
 
     def forward(self, x):
-        # x: (batch_size, input_dim)
-        batch_size = x.size(0)
-
-        # 1) Linear projection, then reshape to [batch_size, base_channels, 8, 8]
-        x = self.fc(x)
-        x = x.view(batch_size, self.base_channels, 4, 4)
-
-        # 2) Apply up blocks
-        x = self.up1(x)  # -> [batch, base_channels//2, 16, 16]
-        x = self.up2(x)  # -> [batch, base_channels//4, 32, 32]
-        x = self.up3(x)  # -> [batch, base_channels//8, 64, 64]
-        x = self.up4(x)  # -> [batch, base_channels//8, 64, 64]
-
-        # 3) Final refining ResBlock + Conv2d => [batch, 4, 64, 64]
-        x = self.final_res(x)
-        x = self.final_conv(x)
-        return x
-
-    def num_params(self):
-        return sum(p.numel() for p in self.parameters())
+        """
+        x: (B, input_dim)
+        Returns: (B, 4, 64, 64)
+        """
+        b = x.shape[0]
+        hidden = self.fc(x)
+        hidden = hidden.view(b, self.base_channels, 4, 4)
+        hidden = self.up1(hidden, x)  # 8x8 -> 16x16 (no attention)
+        hidden = self.up2(hidden, x)  # 16x16 -> 32x32 (with attention)
+        hidden = self.up3(hidden, x)  # 32x32 -> 64x64 (with attention)
+        hidden = self.up4(hidden, x)  # 32x32 -> 64x64 (with attention)
+        out = self.out_conv(hidden)
+        return out
 
 
 class CSIAutoencoderMLP_CNN(L.LightningModule):
@@ -136,9 +174,9 @@ class CSIAutoencoderMLP_CNN(L.LightningModule):
         self,
         input_size: int,
         mlp_layer_sizes: List[int],
-        bottleneck_size: int,
         base_channels: int,
         lr=5e-4,
+        name=""
     ):
         super().__init__()
 
@@ -148,11 +186,11 @@ class CSIAutoencoderMLP_CNN(L.LightningModule):
                                       base_channels=base_channels)
             self.model = self.decoder
         else:
-            self.decoder = CNNDecoder(input_dim=bottleneck_size,
+            self.decoder = CNNDecoder(input_dim=mlp_layer_sizes[-1],
                                       base_channels=base_channels)
             self.encoder = ops.MLP(
                 input_size,
-                mlp_layer_sizes + [bottleneck_size],
+                mlp_layer_sizes,
                 activation_layer=nn.ReLU,
             )
             self.model = nn.Sequential(self.encoder, nn.ReLU(), self.decoder)
@@ -161,8 +199,9 @@ class CSIAutoencoderMLP_CNN(L.LightningModule):
         self.lr = lr
         self.input_size = input_size
         self.mlp_layer_sizes = mlp_layer_sizes
-        self.bottleneck_size = bottleneck_size
+        self.name = name
 
+        self.save_hyperparameters({"name": self.ckpt_name()})
         self.save_hyperparameters()
 
     def configure_optimizers(self):
@@ -203,14 +242,16 @@ class CSIAutoencoderMLP_CNN(L.LightningModule):
         )
         return {"test_loss": loss}
 
-    def ckpt_name(self, name: Union[str, None]):
+    def ckpt_name(self):
         return (
-            (f"{name}_" if name else "")
+            self.name
             + "mlp_cnn_"
             + "-".join(map(str, self.mlp_layer_sizes))
-            + f"_bottleneck={self.bottleneck_size}_"
             + "{val_loss}"
         )
+
+    def num_params(self):
+        return sum(p.numel() for p in self.decoder.parameters())
 
 
 # ***
@@ -221,7 +262,6 @@ def main():
     parser.add_argument("-e", "--epochs", default=1, type=int)
     parser.add_argument("-b", "--batch-size", default=16, type=int)
     parser.add_argument("--lr", default=5e-4, type=float)
-    parser.add_argument("--bottleneck", default=250, type=int)
     parser.add_argument("--base-channels", default=1024, type=int)
     parser.add_argument(
         "-l", "--layer-sizes", default=[], type=int, nargs="+"
@@ -243,7 +283,7 @@ def main():
 
     data_dim = next(iter(test))[0].size(1)
     model = CSIAutoencoderMLP_CNN(
-       data_dim, args.layer_sizes, args.bottleneck, args.base_channels, args.lr
+        data_dim, args.layer_sizes, args.base_channels, args.lr, args.name
     )
     print(model)
     print(sum(p.numel() for p in model.encoder.parameters()))
@@ -257,7 +297,7 @@ def main():
             EarlyStopping("val_loss", patience=5),
             ModelCheckpoint(
                 dirpath=data_path / "ckpts",
-                filename=model.ckpt_name(name=args.name),
+                filename=model.ckpt_name(),
             ),
         ],
     )
