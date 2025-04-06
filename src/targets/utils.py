@@ -69,19 +69,16 @@ def run_dist(
     (args.path / "targets").mkdir(exist_ok=True)
     (args.path / "targets" / "dist_work").mkdir(exist_ok=True)
 
-    photos = np.load(args.path / "photos.npy", mmap_mode="r")
-
     formatter = partial(tmp_file_path_formatter, timestamp)
 
     # TODO torch pr for mp spawn kwargs
     # https://github.com/pytorch/pytorch/issues/73902
     spawn(
         inference_func,
-        args=(world_size, photos, formatter, args),
+        args=(world_size, formatter, args),
         nprocs=world_size,
         join=True,
     )
-    del photos
     gc.collect()
 
     data = torch.concat(

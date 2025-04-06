@@ -20,6 +20,7 @@ parser.add_argument(
     help="List of activity IDs (integers).",
     required=True,
 )
+
 args = parser.parse_args()
 path = args.path
 subjects = list((path / f"E{args.env:02d}").glob("*"))

@@ -13,6 +13,7 @@ from lightning.pytorch.loggers import CSVLogger
 import argparse
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
+
 # ***
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
@@ -48,21 +49,13 @@ class ResidualBlock(nn.Module):
         return x + self.residual_layer(residue)
 
 
-
 class CrossAttentionBlock(nn.Module):
-    """
-    Cross-attention block that attends a spatial feature map to a 1D conditioning vector,
-    using PyTorch's nn.MultiheadAttention.
-
-    The spatial feature map is first reshaped to (L, B, C) where L = H*W.
-    The conditioning vector (of dimension cond_dim) is projected to form key and value tokens.
-    """
     def __init__(self, hidden_dim, cond_dim, n_heads=4):
         super().__init__()
         self.n_heads = n_heads
-        # Use PyTorch's built-in MultiheadAttention.
-        self.mha = nn.MultiheadAttention(embed_dim=hidden_dim, num_heads=n_heads)
-        # Project the spatial feature (query) and conditioning vector (key and value) to the same dimension.
+        self.mha = nn.MultiheadAttention(
+            embed_dim=hidden_dim, num_heads=n_heads
+        )
         self.to_q = nn.Linear(hidden_dim, hidden_dim, bias=False)
         self.to_k = nn.Linear(cond_dim, hidden_dim, bias=False)
         self.to_v = nn.Linear(cond_dim, hidden_dim, bias=False)
@@ -82,8 +75,8 @@ class CrossAttentionBlock(nn.Module):
 
         # Process the conditioning vector as a single token.
         cond_token = cond.unsqueeze(1)  # (B, 1, cond_dim)
-        k = self.to_k(cond_token)         # (B, 1, hidden_dim)
-        v = self.to_v(cond_token)         # (B, 1, hidden_dim)
+        k = self.to_k(cond_token)  # (B, 1, hidden_dim)
+        v = self.to_v(cond_token)  # (B, 1, hidden_dim)
 
         # nn.MultiheadAttention expects (sequence_length, batch, embed_dim)
         q = q.transpose(0, 1)  # (L, B, hidden_dim)
@@ -104,21 +97,20 @@ class CrossAttentionBlock(nn.Module):
         x_out = x_reshaped.view(b, h, w, c).permute(0, 3, 1, 2).contiguous()
         return x_out
 
+
 class UpSampleBlock(nn.Module):
-    """
-    Upsample block that:
-      1) Applies two ResidualBlocks,
-      2) Optionally applies a CrossAttentionBlock using the original 1D vector as conditioning,
-      3) Upsamples the feature map using a ConvTranspose2d.
-    """
     def __init__(self, in_c, out_c, cond_dim, n_heads=4, apply_attention=True):
         super().__init__()
         self.res1 = ResidualBlock(in_c, out_c)
         self.res2 = ResidualBlock(out_c, out_c)
         self.apply_attention = apply_attention
         if self.apply_attention:
-            self.cross_attn = CrossAttentionBlock(out_c, cond_dim, n_heads=n_heads)
-        self.upsample = nn.ConvTranspose2d(out_c, out_c, kernel_size=2, stride=2)
+            self.cross_attn = CrossAttentionBlock(
+                out_c, cond_dim, n_heads=n_heads
+            )
+        self.upsample = nn.ConvTranspose2d(
+            out_c, out_c, kernel_size=2, stride=2
+        )
 
     def forward(self, x, cond):
         x = self.res1(x)
@@ -128,9 +120,11 @@ class UpSampleBlock(nn.Module):
         x = self.upsample(x)
         return x
 
+
 # --------------------------------------------------------
 #  Main Model
 # --------------------------------------------------------
+
 
 class CNNDecoder(nn.Module):
     """
@@ -139,6 +133,7 @@ class CNNDecoder(nn.Module):
       2) Applies 3 upsample blocks (8x8 -> 16x16 -> 32x32 -> 64x64). Only the last two blocks use cross-attention.
       3) Uses a final convolution to produce a 4-channel output.
     """
+
     def __init__(self, input_dim=342, base_channels=512, n_heads=4):
         super().__init__()
         self.input_dim = input_dim
@@ -146,10 +141,34 @@ class CNNDecoder(nn.Module):
 
         self.fc = nn.Linear(input_dim, base_channels * 4 * 4)
 
-        self.up1 = UpSampleBlock(base_channels, base_channels, cond_dim=input_dim, n_heads=n_heads, apply_attention=False)
-        self.up2 = UpSampleBlock(base_channels, base_channels, cond_dim=input_dim, n_heads=n_heads, apply_attention=True)
-        self.up3 = UpSampleBlock(base_channels, base_channels, cond_dim=input_dim, n_heads=n_heads, apply_attention=True)
-        self.up4 = UpSampleBlock(base_channels, base_channels, cond_dim=input_dim, n_heads=n_heads, apply_attention=True)
+        self.up1 = UpSampleBlock(
+            base_channels,
+            base_channels,
+            cond_dim=input_dim,
+            n_heads=n_heads,
+            apply_attention=False,
+        )
+        self.up2 = UpSampleBlock(
+            base_channels,
+            base_channels,
+            cond_dim=input_dim,
+            n_heads=n_heads,
+            apply_attention=True,
+        )
+        self.up3 = UpSampleBlock(
+            base_channels,
+            base_channels,
+            cond_dim=input_dim,
+            n_heads=n_heads,
+            apply_attention=True,
+        )
+        self.up4 = UpSampleBlock(
+            base_channels,
+            base_channels,
+            cond_dim=input_dim,
+            n_heads=n_heads,
+            apply_attention=True,
+        )
 
         self.out_conv = nn.Conv2d(base_channels, 4, kernel_size=3, padding=1)
 
@@ -176,25 +195,26 @@ class CSIAutoencoderMLP_CNN(L.LightningModule):
         mlp_layer_sizes: List[int],
         base_channels: int,
         lr=5e-4,
-        name=""
+        name="",
     ):
         super().__init__()
 
         if mlp_layer_sizes == []:
             self.encoder = nn.Identity()
-            self.decoder = CNNDecoder(input_dim=input_size,
-                                      base_channels=base_channels)
+            self.decoder = CNNDecoder(
+                input_dim=input_size, base_channels=base_channels
+            )
             self.model = self.decoder
         else:
-            self.decoder = CNNDecoder(input_dim=mlp_layer_sizes[-1],
-                                      base_channels=base_channels)
+            self.decoder = CNNDecoder(
+                input_dim=mlp_layer_sizes[-1], base_channels=base_channels
+            )
             self.encoder = ops.MLP(
                 input_size,
                 mlp_layer_sizes,
                 activation_layer=nn.ReLU,
             )
             self.model = nn.Sequential(self.encoder, nn.ReLU(), self.decoder)
-
 
         self.lr = lr
         self.input_size = input_size
@@ -263,9 +283,7 @@ def main():
     parser.add_argument("-b", "--batch-size", default=16, type=int)
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--base-channels", default=1024, type=int)
-    parser.add_argument(
-        "-l", "--layer-sizes", default=[], type=int, nargs="+"
-    )
+    parser.add_argument("-l", "--layer-sizes", default=[], type=int, nargs="+")
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision("medium")

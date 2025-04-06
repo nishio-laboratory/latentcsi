@@ -3,6 +3,7 @@
 from typing import cast
 from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
 import utils
+import numpy as np
 import torch
 import argparse
 import torch.distributed as dist
@@ -19,7 +20,7 @@ def preprocess_resize(im: ImageType, left_offset=34) -> ImageType:
     )
 
 
-def run_inference(rank, world_size, photos, formatter, args):
+def run_inference(rank, world_size, formatter, args):
     dist.init_process_group("nccl", rank=rank, world_size=world_size)
     vae = AutoencoderKL().from_pretrained(
         args.path.parents[1] / "sd/sd-v1-5",
@@ -31,6 +32,8 @@ def run_inference(rank, world_size, photos, formatter, args):
     vae.to(rank)
     gen = torch.Generator(rank)
     print(f"RANK {rank} loaded model")
+
+    photos = np.load(args.path/ "photos.npy", mmap_mode="r")
 
     @utils.chunk_process
     def compute(img):
@@ -55,6 +58,7 @@ def run_inference(rank, world_size, photos, formatter, args):
         ],
     ).to("cpu")
 
+    del photos
     torch.save(out, formatter(args.path, rank))
     dist.destroy_process_group()
 

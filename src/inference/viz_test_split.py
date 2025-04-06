@@ -47,12 +47,17 @@ if __name__ == "__main__":
         sd = cast(
             StableDiffusionImg2ImgPipeline,
             StableDiffusionImg2ImgPipeline.from_pretrained(
-                args.path.parents[1] / "sd/sd-v1-5"
+                next(i for i in [
+                    Path("~/sd-v1-5"),
+                    args.path.parents[1] / "sd/sd-v1-5"
+                ] if i.exists())
             ),
         ).to(model.device)
         sd.safety_checker = None
+        photos = np.load(args.path / "photos.npy", mmap_mode="r")
     else:
         sd = None
+        photos = None
 
     dataset = CSIDataset(args.path)
     _, _, test = torch.utils.data.random_split(
@@ -60,8 +65,6 @@ if __name__ == "__main__":
     )
     indices = torch.randperm(len(dataset), generator=torch.Generator().manual_seed(42)).tolist()
     test_indices = indices[- int(math.floor(len(dataset) * 0.1)):]
-
-    photos = np.load(args.path / "photos.npy", mmap_mode="r")
 
     inf_path = (args.path / f"testset_inference_{os.path.basename(args.ckpt)}")
     inf_path.mkdir(exist_ok=True)
@@ -71,13 +74,14 @@ if __name__ == "__main__":
     for n, (i, (x, y)) in tqdm(enumerate(zip(test_indices, iter(test))), total=len(test_indices)):
         x = x.to(args.device).unsqueeze(0)
         y = y.to(args.device).unsqueeze(0)
-        p = model(x).to(args.device)
+        with torch.no_grad():
+            p = model(x).to(args.device)
         if len(p.shape) == 2:
             p = p.unsqueeze(0)
         # p: (1, 4, 64, 64)
         test_preds[n] = p.squeeze()
         total_loss += torch.nn.functional.mse_loss(p, y)
-        if args.save and sd:
+        if args.save and sd and photos is not None:
             decode(sd, p).save(inf_path / f"{n}_l.png")
             Image.fromarray(photos[i]).save(inf_path / f"{n}_p.png")
 

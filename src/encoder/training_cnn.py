@@ -144,19 +144,20 @@ class CSIAutoencoderMLP_CNN(L.LightningModule):
 
         if mlp_layer_sizes == []:
             self.encoder = nn.Identity()
-            self.decoder = CNNDecoder(input_dim=input_size,
-                                      base_channels=base_channels)
+            self.decoder = CNNDecoder(
+                input_dim=input_size, base_channels=base_channels
+            )
             self.model = self.decoder
         else:
-            self.decoder = CNNDecoder(input_dim=bottleneck_size,
-                                      base_channels=base_channels)
+            self.decoder = CNNDecoder(
+                input_dim=bottleneck_size, base_channels=base_channels
+            )
             self.encoder = ops.MLP(
                 input_size,
                 mlp_layer_sizes + [bottleneck_size],
                 activation_layer=nn.ReLU,
             )
             self.model = nn.Sequential(self.encoder, nn.ReLU(), self.decoder)
-
 
         self.lr = lr
         self.input_size = input_size
@@ -223,9 +224,7 @@ def main():
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--bottleneck", default=250, type=int)
     parser.add_argument("--base-channels", default=1024, type=int)
-    parser.add_argument(
-        "-l", "--layer-sizes", default=[], type=int, nargs="+"
-    )
+    parser.add_argument("-l", "--layer-sizes", default=[], type=int, nargs="+")
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision("medium")
@@ -243,7 +242,11 @@ def main():
 
     data_dim = next(iter(test))[0].size(1)
     model = CSIAutoencoderMLP_CNN(
-       data_dim, args.layer_sizes, args.bottleneck, args.base_channels, args.lr
+        data_dim,
+        args.layer_sizes,
+        args.bottleneck,
+        args.base_channels,
+        args.lr,
     )
     print(model)
     print(sum(p.numel() for p in model.encoder.parameters()))
