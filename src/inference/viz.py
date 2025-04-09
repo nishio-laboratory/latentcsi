@@ -11,11 +11,10 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img impo
 )
 import numpy as np
 
-from src.encoder import training_latents, training_cnn
+from src.encoder import training_latents
 from src.encoder.data_utils import process_csi
+from src.inference.utils import vae_decode
 
-def decode(sd, pred) -> PILImage:
-    return to_pil_image(((sd.vae.decode(pred).sample + 1) / 2).squeeze())
 
 def test_model(
     model: torch.nn.Module,
@@ -66,7 +65,7 @@ if __name__ == "__main__":
     csi = np.load(args.path / "csi.npy", mmap_mode="r")
 
     p = test_model(model, csi[args.index])
-    decode(sd, p / 0.18215).save(args.path / "test_latent.png")
+    vae_decode(sd, p / 0.18215).save(args.path / "test_latent.png")
 
     img = sd(
         "photograph of a man in a clean room, 4k, realistic, high resolution",

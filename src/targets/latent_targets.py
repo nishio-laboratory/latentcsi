@@ -33,7 +33,7 @@ def run_inference(rank, world_size, formatter, args):
     gen = torch.Generator(rank)
     print(f"RANK {rank} loaded model")
 
-    photos = np.load(args.path/ "photos.npy", mmap_mode="r")
+    photos = np.load(args.path / "photos.npy", mmap_mode="r")
 
     @utils.chunk_process
     def compute(img):

@@ -321,7 +321,7 @@ def main():
     )
 
     trainer.fit(model, train, val)
-    trainer.test()
+    trainer.test(dataloaders=test)
 
 
 if __name__ == "__main__":
