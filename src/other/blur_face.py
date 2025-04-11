@@ -2,16 +2,22 @@ import sys
 import cv2
 import numpy as np
 from PIL import Image
+from typing import Optional, List
 
 # Load Haar Cascade for face detection.
 
 
 # face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
 
-haar_cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+haar_cascade_path = (
+    cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+)
 face_cascade = cv2.CascadeClassifier(haar_cascade_path)
 
-def blur_faces_opencv(image: Image.Image) -> Image.Image:
+
+def blur_faces_opencv(
+    image: Image.Image, hardcode: Optional[List[int]] = None
+) -> Image.Image:
     """
     Detects faces in a PIL image using Haar cascades and applies Gaussian blur.
 
@@ -27,9 +33,15 @@ def blur_faces_opencv(image: Image.Image) -> Image.Image:
     gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
 
     # Detect faces.
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, )
+    faces = face_cascade.detectMultiScale(
+        gray,
+        scaleFactor=1.05,
+        minNeighbors=3,
+    )
+    if hardcode:
+        faces = [hardcode]
 
-    for (x, y, w, h) in faces:
+    for x, y, w, h in faces:
         # Extend the region by 5 pixels in every direction.
         x_min = max(x - 5, 0)
         y_min = max(y - 5, 0)
@@ -41,15 +53,18 @@ def blur_faces_opencv(image: Image.Image) -> Image.Image:
 
     return Image.fromarray(img_np)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python blur_faces_opencv.py input_image.jpg output_image.jpg")
+        print(
+            "Usage: python blur_faces_opencv.py input_image.jpg output_image.jpg"
+        )
         sys.exit(1)
 
     input_path = sys.argv[1]
     output_path = sys.argv[2]
 
-    image = Image.open(input_path).convert('RGB')
+    image = Image.open(input_path).convert("RGB")
     blurred_image = blur_faces_opencv(image)
     blurred_image.save(output_path)
     print(f"Blurred image saved to {output_path}")

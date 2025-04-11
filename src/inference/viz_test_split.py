@@ -9,7 +9,7 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img impo
 )
 import numpy as np
 
-from src.encoder import training_cnn_att, training_cnn, training_latents
+from src.encoder import training_cnn_att
 from src.inference.utils import vae_decode
 from src.inference.utils import load_test_dataset
 import math
@@ -19,7 +19,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--path", type=Path, required=True)
     parser.add_argument("--ckpt", type=str)
-    parser.add_argument("--model", type=str)
     parser.add_argument("--device", default=0, type=int)
     parser.add_argument("--save", default=False, action="store_true")
     args = parser.parse_args()
@@ -27,17 +26,8 @@ if __name__ == "__main__":
     if not args.ckpt.endswith(".ckpt"):
         args.ckpt += ".ckpt"
 
-    if args.model == "autoencoder":
-        model = training_latents.CSIAutoencoder
-        model = model.load_from_checkpoint(args.path / "ckpts" / args.ckpt)
-    elif args.model == "mlp_cnn":
-        model = training_cnn.CSIAutoencoderMLP_CNN
-        model = model.load_from_checkpoint(args.path / "ckpts" / args.ckpt)
-    elif args.model == "vaelike_4step_att":
-        model = training_cnn_att.CSIAutoencoderMLP_CNN
-        model = model.load_from_checkpoint(args.path / "ckpts" / args.ckpt)
-    else:
-        raise Exception("model type not valid")
+    model = training_cnn_att.CSIAutoencoderMLP_CNN
+    model = model.load_from_checkpoint(args.path / "ckpts" / args.ckpt)
 
     model.eval()
     model = model.to(args.device)

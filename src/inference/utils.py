@@ -42,9 +42,23 @@ def load_sd(
     ddim = DDIMScheduler.from_pretrained(sd_path, subfolder="scheduler")
     sd = cast(
         StableDiffusionImg2ImgPipeline,
-        StableDiffusionImg2ImgPipeline.from_pretrained(sd_path, scheduler=ddim),
+        StableDiffusionImg2ImgPipeline.from_pretrained(
+            sd_path, scheduler=ddim
+        ),
     )
     sd.safety_checker = None  # pyright: ignore
     if device:
         sd = sd.to(device)  # pyright: ignore
     return sd
+
+
+def generate(sd, input, **kwargs) -> PILImage:
+    if len(input.shape) == 3:
+        input = input.unsqueeze(0)
+    if kwargs["strength"] == 0:
+        return vae_decode(sd, input / 0.18215)
+    else:
+        return sd(
+            image=input,
+            **kwargs,
+        ).images[0]
