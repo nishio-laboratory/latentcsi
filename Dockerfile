@@ -15,8 +15,7 @@ RUN apt install -y bash \
     python3.10-dev \
     python3-pip \
     python3.10-venv \
-    texlive \
-    dvipng texlive-latex-extra texlive-fonts-recommended cm-super texlive-xetex \
+    fish \
     && \
     rm -rf /var/lib/apt/lists
 
