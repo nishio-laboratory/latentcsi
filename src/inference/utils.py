@@ -11,8 +11,8 @@ from torchvision.transforms.functional import to_pil_image
 from PIL.Image import Image as PILImage
 
 
-def load_test_dataset(path: Path):
-    dataset = CSIDataset(path)
+def load_test_dataset(path: Path, aux_data=[]):
+    dataset = CSIDataset(path, aux_data=aux_data)
     _, _, test = torch.utils.data.random_split(
         dataset, [0.8, 0.1, 0.1], torch.Generator().manual_seed(42)
     )
@@ -62,3 +62,9 @@ def generate(sd, input, **kwargs) -> PILImage:
             image=input,
             **kwargs,
         ).images[0]
+
+def permute_color_chan(t: torch.Tensor) -> torch.Tensor:
+    if len(t.shape) == 3:
+        return t.permute(2, 1, 0)
+    else:
+        return t.permute(0, 3, 2, 1)

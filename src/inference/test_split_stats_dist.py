@@ -35,7 +35,10 @@ def worker(rank, args, latent_arr, photos, indices, return_dict):
         latent = latent_arr[idx]
         ref = photos[idx]
         latent = latent.to(f"cuda:{rank}")
-        generated_img = vae_decode(sd, latent)
+        if latent.shape[-1] == 3:
+            generated_img = latent
+        else:
+            generated_img = vae_decode(sd, latent)
         img_tensor = torch.from_numpy(np.asarray(generated_img, copy=True))
         rmse = np.sqrt(
             mse(

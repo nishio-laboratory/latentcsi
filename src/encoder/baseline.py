@@ -120,26 +120,14 @@ class UpSampleBlock(nn.Module):
         x = self.upsample(x)
         return x
 
-
-# --------------------------------------------------------
-#  Main Model
-# --------------------------------------------------------
-
-
 class CNNDecoder(nn.Module):
-    """
-    A latent-space generator that:
-      1) Projects a 1D input vector of size `input_dim` into a 2D tensor of shape (base_channels, 8, 8),
-      2) Applies 3 upsample blocks (8x8 -> 16x16 -> 32x32 -> 64x64). Only the last two blocks use cross-attention.
-      3) Uses a final convolution to produce a 4-channel output.
-    """
 
     def __init__(self, input_dim=342, base_channels=512, n_heads=4):
         super().__init__()
         self.input_dim = input_dim
         self.base_channels = base_channels
 
-        self.fc = nn.Linear(input_dim, base_channels * 4 * 4)
+        self.fc = nn.Linear(input_dim, base_channels * 32 * 32)
 
         self.up1 = UpSampleBlock(
             base_channels,
@@ -170,7 +158,7 @@ class CNNDecoder(nn.Module):
             apply_attention=True,
         )
 
-        self.out_conv = nn.Conv2d(base_channels, 4, kernel_size=3, padding=1)
+        self.out_conv = nn.Conv2d(base_channels, 3, kernel_size=3, padding=1)
 
     def forward(self, x):
         """
@@ -179,13 +167,13 @@ class CNNDecoder(nn.Module):
         """
         b = x.shape[0]
         hidden = self.fc(x)
-        hidden = hidden.view(b, self.base_channels, 4, 4)
-        hidden = self.up1(hidden, x)  # 8x8 -> 16x16 (no attention)
-        hidden = self.up2(hidden, x)  # 16x16 -> 32x32 (with attention)
-        hidden = self.up3(hidden, x)  # 32x32 -> 64x64 (with attention)
-        hidden = self.up4(hidden, x)  # 32x32 -> 64x64 (with attention)
+        hidden = hidden.view(b, self.base_channels, 32, 32)
+        hidden = self.up1(hidden, x)
+        hidden = self.up2(hidden, x)
+        hidden = self.up3(hidden, x)
+        hidden = self.up4(hidden, x)
         out = self.out_conv(hidden)
-        return out
+        return out.permute(0, 3, 2, 1)
 
 
 class CSIAutoencoderMLP_CNN(L.LightningModule):
@@ -231,9 +219,9 @@ class CSIAutoencoderMLP_CNN(L.LightningModule):
         return self.model.forward(x)
 
     def training_step(self, batch, batch_idx):
-        inputs, targets = batch
+        inputs, _, targets = batch
         outputs = self.model(inputs)
-        loss = torch.nn.functional.mse_loss(outputs, targets)
+        loss = torch.nn.functional.mse_loss(outputs, targets.to(outputs.dtype))
         self.log(
             "train_loss",
             loss,
@@ -245,18 +233,18 @@ class CSIAutoencoderMLP_CNN(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        inputs, targets = batch
+        inputs, _, targets = batch
         outputs = self.model(inputs)
-        loss = torch.nn.functional.mse_loss(outputs, targets)
+        loss = torch.nn.functional.mse_loss(outputs, targets.to(outputs.dtype))
         self.log(
             "val_loss", loss, sync_dist=True, prog_bar=True, on_epoch=True
         )
         return loss
 
     def test_step(self, batch, batch_idx):
-        inputs, targets = batch
+        inputs, _, targets = batch
         outputs = self.model(inputs)
-        loss = torch.nn.functional.mse_loss(outputs, targets)
+        loss = torch.nn.functional.mse_loss(outputs, targets.to(outputs.dtype))
         self.log(
             "test_loss", loss, prog_bar=True, on_epoch=True, sync_dist=True
         )
@@ -282,14 +270,14 @@ def main():
     parser.add_argument("-e", "--epochs", default=1, type=int)
     parser.add_argument("-b", "--batch-size", default=16, type=int)
     parser.add_argument("--lr", default=5e-4, type=float)
-    parser.add_argument("--base-channels", default=1024, type=int)
+    parser.add_argument("--base-channels", default=512, type=int)
     parser.add_argument("-l", "--layer-sizes", default=[], type=int, nargs="+")
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision("medium")
 
     data_path = Path(args.path)
-    dataset = CSIDataset(data_path)
+    dataset = CSIDataset(data_path, aux_data=["photos"])
     train, val, test = torch.utils.data.random_split(
         dataset, [0.8, 0.1, 0.1], torch.Generator().manual_seed(42)
     )
@@ -303,9 +291,8 @@ def main():
     model = CSIAutoencoderMLP_CNN(
         data_dim, args.layer_sizes, args.base_channels, args.lr, args.name
     )
-    print(model)
-    print(sum(p.numel() for p in model.encoder.parameters()))
-    print(sum(p.numel() for p in model.decoder.parameters()))
+    print(f"encoder param count: {sum(p.numel() for p in model.encoder.parameters())}")
+    print(f"decoder param count: {sum(p.numel() for p in model.decoder.parameters())}")
 
     trainer = L.Trainer(
         max_epochs=args.epochs,

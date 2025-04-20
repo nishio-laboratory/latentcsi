@@ -1,3 +1,4 @@
+from torch import permute
 from tqdm import tqdm
 from src.inference.utils import *
 import argparse
@@ -30,25 +31,34 @@ if __name__ == "__main__":
     if not args.ckpt.endswith(".ckpt"):
         args.ckpt += ".ckpt"
 
-    sd = load_sd(args.path.parents[1], torch.device(0))
-    sd.set_progress_bar_config(disable=True)
+    # sd = load_sd(args.path.parents[1], torch.device(0))
+    # sd.set_progress_bar_config(disable=True)
 
     torch.set_grad_enabled(False)
 
     testset_path = args.path / f"testset_inference_{args.ckpt}"
-    p = torch.load(testset_path / "all_preds.pt", mmap=True)
-    photos = np.load(
-        args.path / "photos_test_resized.npy", mmap_mode="r"
-    ).astype(np.uint8)
-    photos = torch.Tensor(photos).type(torch.uint8)
+    p = torch.load(testset_path / "all_preds.pt", mmap=True, map_location="cpu").to(torch.uint8)
+    photos = torch.load(
+        args.path / "photos_all_resized.pt", mmap = True, map_location="cpu"
+    )
 
-    fid_obj = FrechetInceptionDistance()
+    fid_obj = FrechetInceptionDistance().to("cuda")
     pixel_error_sum = 0
     ssim_sum = 0
+
+    if p[0].shape[-1] == 3:
+        preds = p
+    else:
+        preds = torch.zeros((5, 512, 512, 3))
+
     for n, (latent, ref) in tqdm(enumerate(zip(p, photos)), total=len(p)):
         # img = generate(sd, latent, prompt="", strength=0.6)
-        img = np.asarray(vae_decode(sd, latent))
-        img = torch.from_numpy(np.array(img))
+        if latent.shape[-1] == 3:
+            img = latent.to(torch.uint8)
+        else:
+            img = np.asarray(vae_decode(sd, latent))
+            img = torch.from_numpy(np.array(img))
+            preds[n] = img
 
         pe = torch.sum(torch.abs(img - ref))
         rmse = np.sqrt(
@@ -69,14 +79,15 @@ if __name__ == "__main__":
         )
         ssim_sum += s
 
-        fid_obj.update(ref.permute(2, 0, 1).unsqueeze(0), real=True)
-        fid_obj.update(img.permute(2, 0, 1).unsqueeze(0), real=False)
-        # if n > 1:
-        #     print(fid_obj.compute())
-
     pixel_error = pixel_error_sum / (3 * len(p))
     ssim = ssim_sum / len(p)
-    print(pixel_error, ssim, fid_obj.compute())
+    print(f"RMSE: {pixel_error}")
+    print(f"SSIM: {ssim}")
+
+    # fid_obj.update(permute_color_chan(photos.to("cuda")), real=True)
+    # fid_obj.update(permute_color_chan(preds.to("cuda")), real=False)
+    # print(f"FID: {fid_obj.compute()}")
+
 
 
 # python -m src.figures.strengths --path /mnt/nas/esrh/csi_image_data/datasets/walking/ --ckpt walking_vaelike_512_4st_run2mlp_cnn_val_loss=5.283313751220703.ckpt

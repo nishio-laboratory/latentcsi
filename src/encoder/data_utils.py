@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 from torch.utils.data import Dataset
 
-AuxDataTypes = Literal["latent_dists", "seg_lastlayer", "seg_map"]
+AuxDataTypes = Literal["latent_dists", "seg_lastlayer", "seg_map", "photos"]
 
 
 def process_csi(csi: np.ndarray) -> torch.Tensor:
@@ -25,6 +25,7 @@ class CSIDataset(Dataset):
             "latent_dists": (path / "targets" / "targets_dists.pt"),
             "seg_lastlayer": (path / "targets" / "targets_seg.pt"),
             "seg_map": (path / "targets" / "targets_segmented.pt"),
+            "photos": (path / "photos.pt")
         }
         if (path / "csi.npy").exists():
             self.csi = process_csi(np.load(path / "csi.npy"))
@@ -46,9 +47,14 @@ class CSIDataset(Dataset):
         for i in aux_data:
             file_path = filename_mapping[i]
             if file_path.exists():
-                self.aux.append(
-                    torch.load(file_path, weights_only=True, mmap=True)
-                )
+                if str(file_path).endswith(".pt"):
+                    self.aux.append(
+                        torch.load(file_path, weights_only=True, mmap=True)
+                    )
+                elif str(file_path).endswith(".npy"):
+                    self.aux.append(
+                        torch.load(file_path, weights_only=True, mmap=True)
+                    )
             else:
                 raise Exception(
                     f"Aux data {i} requires file at {file_path}, not found."
