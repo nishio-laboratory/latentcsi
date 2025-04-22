@@ -1,6 +1,8 @@
 # (setq python-shell-interpreter "/home/esrh/csi_to_image/activate_docker.sh")
 # (setq python-shell-intepreter-args "-p")
 from typing import cast, Union, List
+import time
+from src.encoder.base import TrainingTimerCallback
 from src.encoder.data_utils import CSIDataset
 import torch
 from torch import nn
@@ -294,21 +296,25 @@ def main():
     print(f"encoder param count: {sum(p.numel() for p in model.encoder.parameters())}")
     print(f"decoder param count: {sum(p.numel() for p in model.decoder.parameters())}")
 
-    trainer = L.Trainer(
-        max_epochs=args.epochs,
-        logger=CSVLogger(save_dir=data_path, name="logs", version=args.name),
-        strategy="ddp_find_unused_parameters_true",
-        callbacks=[
+    trainer_config = {
+        "devices": [0],
+        "max_epochs": args.epochs,
+        "logger": CSVLogger(save_dir=data_path, name="logs", version=args.name),
+        "callbacks": [
             EarlyStopping("val_loss", patience=5),
             ModelCheckpoint(
                 dirpath=data_path / "ckpts",
                 filename=model.ckpt_name(),
             ),
-        ],
-    )
+            TrainingTimerCallback()
+        ]
+    }
+    if "devices" not in trainer_config or len(trainer_config["devices"]) > 1:
+        trainer_config["strategy"] = "ddp_find_unused_parameters_true"
+    trainer = L.Trainer(**trainer_config)
 
     trainer.fit(model, train, val)
-    trainer.test(dataloaders=test)
+    trainer.test(dataloaders=test, ckpt_path="best")
 
 
 if __name__ == "__main__":
