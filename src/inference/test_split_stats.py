@@ -1,18 +1,18 @@
 from torch import permute
+import torchvision
+from itertools import islice
 from tqdm import tqdm
+import glob
 from src.inference.utils import *
 import argparse
 from pathlib import Path
 import os
-from src.targets.utils import preprocess_resize
-from src.inference.utils import vae_decode, load_sd
-from src.other.blur_face import blur_faces_opencv
 from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
 from skimage.metrics import mean_squared_error as mse
-from torchmetrics.image.fid import FrechetInceptionDistance
+from src.inference.fid import compute_fid_inception as fid_inception
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -20,6 +20,7 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt", type=str)
     parser.add_argument("--out", type=Path, required=False)
     parser.add_argument("--runs", type=int, required=False, default=1)
+    parser.add_argument("--baseline", action="store_true")
     args = parser.parse_args()
     args.ckpt = os.path.basename(args.ckpt)
 
@@ -31,34 +32,34 @@ if __name__ == "__main__":
     if not args.ckpt.endswith(".ckpt"):
         args.ckpt += ".ckpt"
 
-    # sd = load_sd(args.path.parents[1], torch.device(0))
-    # sd.set_progress_bar_config(disable=True)
-
     torch.set_grad_enabled(False)
 
     testset_path = args.path / f"testset_inference_{args.ckpt}"
-    p = torch.load(testset_path / "all_preds.pt", mmap=True, map_location="cpu").to(torch.uint8)
-    photos = torch.load(
-        args.path / "photos_all_resized.pt", mmap = True, map_location="cpu"
-    )
 
-    fid_obj = FrechetInceptionDistance().to("cuda")
+    p = [
+        Image.open(i)
+        for i in tqdm(
+            sorted(glob.glob(str(testset_path / "*_l.png"))),
+            desc="loading preds",
+        )
+    ]
+    y = [
+        Image.open(i)
+        for i in tqdm(
+            sorted(glob.glob(str(testset_path / "*_p.png"))),
+            desc="loading reals",
+        )
+    ]
+
     pixel_error_sum = 0
     ssim_sum = 0
 
-    if p[0].shape[-1] == 3:
-        preds = p
-    else:
-        preds = torch.zeros((5, 512, 512, 3))
-
-    for n, (latent, ref) in tqdm(enumerate(zip(p, photos)), total=len(p)):
+    for n, (latent, ref) in tqdm(
+        enumerate(zip(p, y)), total=len(p), desc="computing"
+    ):
         # img = generate(sd, latent, prompt="", strength=0.6)
-        if latent.shape[-1] == 3:
-            img = latent.to(torch.uint8)
-        else:
-            img = np.asarray(vae_decode(sd, latent))
-            img = torch.from_numpy(np.array(img))
-            preds[n] = img
+        img = torch.Tensor(np.asarray(latent))
+        ref = torch.Tensor(np.asarray(ref))
 
         pe = torch.sum(torch.abs(img - ref))
         rmse = np.sqrt(
@@ -79,15 +80,16 @@ if __name__ == "__main__":
         )
         ssim_sum += s
 
-    pixel_error = pixel_error_sum / (3 * len(p))
+    pixel_error = pixel_error_sum / len(p)
     ssim = ssim_sum / len(p)
+    fid = fid_inception(p, y, device="cuda")
+
     print(f"RMSE: {pixel_error}")
     print(f"SSIM: {ssim}")
+    print(f"FID: {fid}")
 
-    # fid_obj.update(permute_color_chan(photos.to("cuda")), real=True)
-    # fid_obj.update(permute_color_chan(preds.to("cuda")), real=False)
-    # print(f"FID: {fid_obj.compute()}")
-
+    with open(testset_path / "stats.txt", mode="a+") as f:
+        f.writelines([f"RMSE: {pixel_error}", f"SSIM: {ssim}", f"FID: {fid}"])
 
 
 # python -m src.figures.strengths --path /mnt/nas/esrh/csi_image_data/datasets/walking/ --ckpt walking_vaelike_512_4st_run2mlp_cnn_val_loss=5.283313751220703.ckpt

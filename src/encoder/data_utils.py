@@ -25,7 +25,7 @@ class CSIDataset(Dataset):
             "latent_dists": (path / "targets" / "targets_dists.pt"),
             "seg_lastlayer": (path / "targets" / "targets_seg.pt"),
             "seg_map": (path / "targets" / "targets_segmented.pt"),
-            "photos": (path / "photos.pt")
+            "photos": (path / "photos.pt"),
         }
         if (path / "csi.npy").exists():
             self.csi = process_csi(np.load(path / "csi.npy"))

@@ -54,8 +54,12 @@ if __name__ == "__main__":
         test_preds[n] = p.squeeze()
         total_loss += torch.nn.functional.mse_loss(p, y)
         if args.save:
-            Image.fromarray(np.asarray(p.squeeze().cpu(), dtype=np.uint8)).save(inf_path / f"{n}_l.png")
-            Image.fromarray(np.asarray(y.squeeze().cpu(), dtype=np.uint8)).save(inf_path / f"{n}_p.png")
+            Image.fromarray(
+                np.asarray(p.squeeze().cpu(), dtype=np.uint8)
+            ).save(inf_path / f"{n}_l.png")
+            Image.fromarray(
+                np.asarray(y.squeeze().cpu(), dtype=np.uint8)
+            ).save(inf_path / f"{n}_p.png")
 
     avg_loss = total_loss / len(test_indices)
 

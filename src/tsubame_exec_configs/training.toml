@@ -1,19 +1,24 @@
+tsubame_validation = true
+
 [connection]
 host = "tsubame"
 
 [sync.code]
-from = "~/prog/csi_to_image"
-to = "~"
+from = "~/prog/csi_to_image/"
+to = "~/alt/"
 excludes = [".*", "__*", "lightning_logs", "env"]
 
 [exec]
-cmd = "python -m src.encoder.training_latents -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/walking -b 16 -e 200 -s" # required
+basechannels = 256
+name = "mmfi_two_cnn_vaelike_attention_$basechannels"
+cmd = ["python -m src.encoder.training_cnn_att -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/mmfi_hands_two -n $name --epochs 1000 -b 16 --base-channels $basechannels",
+]
+
 max_runtime = "10:00:00"
-name = "single"
 group = "tga-nlab"
 
 [exec.env]
-dir = "csi_to_image" # required, directory from which to run cmd
+dir = "alt/csi_to_image" # required, directory from which to run cmd
 modules = ["intel", "cuda"]
 python_deps = [
 "torch",
@@ -28,7 +33,5 @@ python_deps = [
 env_vars = {PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"}
 
 [exec.resource]
-type = "node_f"
+type = "gpu_1"
 count = 1
-# type = "gpu_1"
-# count = 2

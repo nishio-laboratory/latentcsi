@@ -77,6 +77,7 @@ if __name__ == "__main__":
             Image.fromarray(photos[i]).save(inf_path / f"{n}_p.png")
 
     print(total_loss / len(test_indices))
+
     torch.save(test_preds, inf_path / "all_preds.pt")
 
 # mmfi_hands_two: 11880 boundary

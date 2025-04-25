@@ -63,6 +63,7 @@ def generate(sd, input, **kwargs) -> PILImage:
             **kwargs,
         ).images[0]
 
+
 def permute_color_chan(t: torch.Tensor) -> torch.Tensor:
     if len(t.shape) == 3:
         return t.permute(2, 1, 0)
