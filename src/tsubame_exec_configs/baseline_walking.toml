@@ -1,0 +1,35 @@
+tsubame_validation = true
+
+[connection]
+host = "tsubame"
+
+[sync.code]
+from = "~/prog/csi_to_image/"
+to = "~/alt/"
+excludes = [".*", "__*", "lightning_logs", "env"]
+
+[exec]
+basechannels = 32
+name = "mmfi_two_baseline_$basechannels"
+cmd = ["python -m src.encoder.baseline -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/mmfi_hands_two -n $name --epochs 1000 -b 16 --base-channels $basechannels"]
+max_runtime = "10:00:00"
+group = "tga-nlab"
+
+[exec.env]
+dir = "alt/csi_to_image" # required, directory from which to run cmd
+modules = ["intel", "cuda"]
+python_deps = [
+"torch",
+"torchvision",
+"numpy",
+"diffusers",
+"transformers",
+"accelerate",
+"lightning",
+"more-itertools"
+]
+env_vars = {PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"}
+
+[exec.resource]
+type = "gpu_1"
+count = 1
