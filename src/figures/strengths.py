@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
 
+
 def generate_fig(ref, gens):
     strengths = [0, 0.4, 0.5, 0.6, 0.7, 1]
     fig, axs = plt.subplots(1, len(strengths) + 1, figsize=(7.14, 2))
@@ -43,15 +44,18 @@ def worker(rank, args, latent, q):
 
     strengths = [0, 0.4, 0.5, 0.6, 0.7, 1]
     for _ in range(args.runs):
-        q.put([
-            generate(
-                sd,
-                latent,
-                strength=s,
-                prompt="photograph of a man standing in a small office room, realistic, 4k, high resolution",
-            )
-            for s in strengths
-        ])
+        q.put(
+            [
+                generate(
+                    sd,
+                    latent,
+                    strength=s,
+                    prompt="photograph of a man standing in a small office room, realistic, 4k, high resolution",
+                )
+                for s in strengths
+            ]
+        )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -73,9 +77,17 @@ if __name__ == "__main__":
 
     torch.set_grad_enabled(False)
 
-    p = torch.load(args.path / f"testset_inference_{args.ckpt}" / "all_preds.pt", mmap=True, map_location="cpu")
+    p = torch.load(
+        args.path / f"testset_inference_{args.ckpt}" / "all_preds.pt",
+        mmap=True,
+        map_location="cpu",
+    )
     image = p[args.idx] * 0.18215
-    ref = preprocess_resize(Image.open(args.path / f"testset_inference_{args.ckpt}" / f"{args.idx}_p.png"))
+    ref = preprocess_resize(
+        Image.open(
+            args.path / f"testset_inference_{args.ckpt}" / f"{args.idx}_p.png"
+        )
+    )
 
     mp.set_start_method("spawn")
     num_gpus = torch.cuda.device_count()

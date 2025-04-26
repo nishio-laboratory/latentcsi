@@ -16,7 +16,6 @@ if __name__ == "__main__":
     photos = np.load(args.path / "photos.npy").astype(np.uint8)
     print("loaded photos")
     if args.test:
-
         test, test_indices = load_test_dataset(args.path)
 
         photos = photos[test_indices]
@@ -33,4 +32,4 @@ if __name__ == "__main__":
         full = np.stack(photos, axis=0, dtype=np.uint8)
         del photos
         t = torch.from_numpy(full)
-        torch.save(t, (args.path / "photos_all_resized.npy"))
+        torch.save(t, (args.path / "photos.pt"))

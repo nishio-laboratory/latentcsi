@@ -13,7 +13,7 @@ class ResidualBlock(nn.Module):
         if in_channels < 32:
             num_groups = 8
         else:
-            num_groups=32
+            num_groups = 32
 
         self.groupnorm_1 = nn.GroupNorm(num_groups, in_channels)
         self.conv_1 = nn.Conv2d(

@@ -18,9 +18,7 @@ def generate_fig(photo_path: Path, p, sd, include_sd=True):
     )
     idxs = [227, 95, 54, 91]
     for n, i in enumerate(idxs):
-        photo = blur_faces_opencv(
-            Image.open(photo_path / f"{i}_p.png")
-        )
+        photo = blur_faces_opencv(Image.open(photo_path / f"{i}_p.png"))
         latent = Image.open(photo_path / f"{i}_l.png")
         for a in axs[n]:
             a.axis("off")
@@ -72,7 +70,9 @@ if __name__ == "__main__":
     torch.set_grad_enabled(False)
 
     testset_path = args.path / f"testset_inference_{args.ckpt}"
-    p = torch.load(testset_path / "all_preds.pt", mmap=True, map_location="cpu")
+    p = torch.load(
+        testset_path / "all_preds.pt", mmap=True, map_location="cpu"
+    )
 
     plt.rcParams.update(
         {
