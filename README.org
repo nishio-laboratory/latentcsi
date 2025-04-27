@@ -1,0 +1,18 @@
+* Usage flow
+1. Gather data into =dir=. This is:
+   - =photos.npy= or =photos.pt=
+   - =csi.npy=
+   - any auxiliary data
+2. Resize photos if necessary with =src.other.resize_all=
+3. Generate latent targets with =src.targets.latent_targets=, run
+   using torchrun
+   - This creates a folder =dir/targets=
+4. Train models using =src.encoder.baseline= and
+   =src.encoder.training_cnn_att=.
+5. Given a ckpt file, generate predictions and reals using
+   =src.inference.viz_test_split=
+6. Compute stats with =src.inference.stats=
+7. Generate figures with files under =src.figures=
+
+All scripts take a =-p/--path= parameter which always refers to the
+top level =dir=.

@@ -1,0 +1,3 @@
+* TODO Second half with CNN layers
+* TODO U-net style skip connections?
+* TODO Generate predicted targets for whole test set
