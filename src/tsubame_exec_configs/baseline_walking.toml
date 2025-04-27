@@ -10,7 +10,7 @@ excludes = [".*", "__*", "lightning_logs", "env"]
 
 [exec]
 basechannels = 8
-name = "walking_baseline_$basechannels"
+name = "walking_baseline_gn_inch_$basechannels"
 cmd = ["python -m src.encoder.baseline -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/walking -n $name --epochs 1000 -b 16 --base-channels $basechannels"]
 max_runtime = "10:00:00"
 group = "tga-nlab"

@@ -1,5 +1,6 @@
 from torch import permute
-import torchvision
+import pickle
+from typing import List
 from itertools import islice
 from tqdm import tqdm
 import glob
@@ -19,8 +20,7 @@ if __name__ == "__main__":
     parser.add_argument("-p", "--path", type=Path)
     parser.add_argument("--ckpt", type=str)
     parser.add_argument("--out", type=Path, required=False)
-    parser.add_argument("--runs", type=int, required=False, default=1)
-    parser.add_argument("--baseline", action="store_true")
+    parser.add_argument("--crop", action="store_true")
     args = parser.parse_args()
     args.ckpt = os.path.basename(args.ckpt)
 
@@ -29,7 +29,7 @@ if __name__ == "__main__":
     else:
         args.out.mkdir(exist_ok=True)
 
-    if not args.ckpt.endswith(".ckpt"):
+    if not str(args.ckpt).endswith(".ckpt"):
         args.ckpt += ".ckpt"
 
     torch.set_grad_enabled(False)
@@ -51,14 +51,42 @@ if __name__ == "__main__":
         )
     ]
 
+    if args.crop:
+        with open(args.path / "ts_bboxes.pkl", "rb") as f:
+            bboxes: List[List[List[int]]] = pickle.load(f)
+        p = [
+            img.crop(
+                (
+                    bbox[0][0],
+                    bbox[0][1],
+                    bbox[0][0] + bbox[0][2],
+                    bbox[0][1] + bbox[0][3],
+                )
+            )
+            for img, bbox in zip(p, bboxes)
+            if len(bbox) != 0
+        ]
+        y = [
+            img.crop(
+                (
+                    bbox[0][0],
+                    bbox[0][1],
+                    bbox[0][0] + bbox[0][2],
+                    bbox[0][1] + bbox[0][3],
+                )
+            )
+            for img, bbox in zip(y, bboxes)
+            if len(bbox) != 0
+        ]
+
     pixel_error_sum = 0
     ssim_sum = 0
 
-    for n, (latent, ref) in tqdm(
+    for n, (img, ref) in tqdm(
         enumerate(zip(p, y)), total=len(p), desc="computing"
     ):
         # img = generate(sd, latent, prompt="", strength=0.6)
-        img = torch.Tensor(np.asarray(latent))
+        img = torch.Tensor(np.asarray(img))
         ref = torch.Tensor(np.asarray(ref))
 
         pe = torch.sum(torch.abs(img - ref))
@@ -84,12 +112,18 @@ if __name__ == "__main__":
     ssim = ssim_sum / len(p)
     fid = fid_inception(p, y, device="cuda")
 
-    print(f"RMSE: {pixel_error}")
-    print(f"SSIM: {ssim}")
-    print(f"FID: {fid}")
+    output_strings = [
+        f"RMSE {'(crop)' if args.crop else ''}: {pixel_error}",
+        f"SSIM {'(crop)' if args.crop else ''}: {ssim}",
+        f"FID {'(crop)' if args.crop else ''}: {fid}"
+    ]
+
+    for i in output_strings:
+        print(i)
 
     with open(testset_path / "stats.txt", mode="a+") as f:
-        f.writelines([f"RMSE: {pixel_error}", f"SSIM: {ssim}", f"FID: {fid}"])
+        f.write("\n" + "\n".join(output_strings) + "\n")
+
 
 
 # python -m src.figures.strengths --path /mnt/nas/esrh/csi_image_data/datasets/walking/ --ckpt walking_vaelike_512_4st_run2mlp_cnn_val_loss=5.283313751220703.ckpt

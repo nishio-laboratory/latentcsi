@@ -14,6 +14,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     photos = np.load(args.path / "photos.npy").astype(np.uint8)
+    out = np.zeros((len(photos), 512, 512, 3))
     print("loaded photos")
     if args.test:
         test, test_indices = load_test_dataset(args.path)
@@ -28,8 +29,8 @@ if __name__ == "__main__":
         np.save((args.path / "photos_test_resized.npy"), full)
     else:
         for n, i in tqdm(enumerate(photos), total=len(photos)):
-            photos[n] = np.asarray(preprocess_resize(Image.fromarray(i)))
-        full = np.stack(photos, axis=0, dtype=np.uint8)
+            out[n] = np.asarray(preprocess_resize(Image.fromarray(i)))
         del photos
+        full = np.stack(out, axis=0, dtype=np.uint8)
         t = torch.from_numpy(full)
         torch.save(t, (args.path / "photos.pt"))

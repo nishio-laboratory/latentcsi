@@ -8,11 +8,9 @@ from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img impo
     StableDiffusionImg2ImgPipeline,
 )
 import numpy as np
-
 from src.encoder import training_cnn_att
 from src.inference.utils import vae_decode
 from src.inference.utils import load_test_dataset
-import math
 from tqdm import tqdm
 
 if __name__ == "__main__":
@@ -48,7 +46,7 @@ if __name__ == "__main__":
             ),
         ).to(model.device)
         sd.safety_checker = None
-        photos = np.load(args.path / "photos.npy", mmap_mode="r")
+        photos = torch.load(args.path / "photos.pt", mmap=True)
     else:
         sd = None
         photos = None
@@ -74,10 +72,10 @@ if __name__ == "__main__":
         total_loss += torch.nn.functional.mse_loss(p, y)
         if args.save and sd and photos is not None:
             vae_decode(sd, p).save(inf_path / f"{n}_l.png")
-            Image.fromarray(photos[i]).save(inf_path / f"{n}_p.png")
-
+            Image.fromarray(np.asarray(photos[i])).save(
+                inf_path / f"{n}_p.png"
+            )
     print(total_loss / len(test_indices))
-
     torch.save(test_preds, inf_path / "all_preds.pt")
 
 # mmfi_hands_two: 11880 boundary
