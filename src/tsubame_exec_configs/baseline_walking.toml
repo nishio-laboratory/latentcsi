@@ -10,13 +10,16 @@ excludes = [".*", "__*", "lightning_logs", "env"]
 
 [exec]
 basechannels = 8
-name = "walking_baseline_gn_inch_$basechannels"
-cmd = ["python -m src.encoder.baseline -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/walking -n $name --epochs 1000 -b 16 --base-channels $basechannels"]
+num=1
+name = "walking_baseline_gn_inch_$basechannels-$num"
+cmd = [
+"cd ~/alt/csi_to_image",
+"python -m src.encoder.baseline -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/walking -n $name --epochs 1000 -b 16 --base-channels $basechannels"]
 max_runtime = "10:00:00"
 group = "tga-nlab"
 
 [exec.env]
-dir = "alt/csi_to_image" # required, directory from which to run cmd
+dir = "alt/run_walking_$num" # required, directory from which to run cmd
 modules = ["intel", "cuda"]
 python_deps = [
 "torch",

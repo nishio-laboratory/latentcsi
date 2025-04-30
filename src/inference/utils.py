@@ -55,11 +55,11 @@ def load_sd(
 def generate(sd, input, **kwargs) -> PILImage:
     if len(input.shape) == 3:
         input = input.unsqueeze(0)
-    if kwargs["strength"] == 0:
-        return vae_decode(sd, input / 0.18215)
+    if "strength" in kwargs and kwargs["strength"] == 0:
+        return vae_decode(sd, input)
     else:
         return sd(
-            image=input,
+            image=input * 0.18215,
             **kwargs,
         ).images[0]
 

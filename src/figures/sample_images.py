@@ -1,4 +1,5 @@
 from src.inference.utils import *
+import sys
 import torch.multiprocessing as mp
 import argparse
 from pathlib import Path
@@ -11,79 +12,79 @@ import numpy as np
 from skimage.metrics import structural_similarity as ssim
 from brisque import BRISQUE
 
+idxs = [21, 119, 39, 59]
 
-def generate_fig(photo_path: Path, p, sd, include_sd=True):
-    fig, axs = plt.subplots(
-        4, 3 if include_sd else 2, figsize=(7.14 / 2, 7.14)
-    )
-    idxs = [21, 15, 39, 59]
+
+def generate_fig(photos_path, prop_path, base_path):
+    fig, axs = plt.subplots(4, 3, figsize=(7.14 / 2, 5))
     for n, i in enumerate(idxs):
-        photo = blur_faces_opencv(
-            preprocess_resize(Image.open(photo_path / f"{i}_p.png"))
-        )
+        ref = blur_faces_opencv(Image.open(prop_path / f"{i}_p.png"))
         if i == 21:
-            photo = blur_faces_opencv(photo, hardcode=[50, 120, 100, 100])
-        latent = Image.open(photo_path / f"{i}_l.png")
+            ref = blur_faces_opencv(ref, hardcode=[50, 120, 100, 100])
+
+        prop_img = Image.open(prop_path / f"{i}_l.png")
+        base_img = Image.open(base_path / f"{i}_l.png")
+
         for a in axs[n]:
             a.axis("off")
-        axs[n][0].imshow(photo)
-        axs[n][1].imshow(latent)
-        if include_sd:
-            axs[n][2].imshow(
-                sd(
-                    image=p[i] * 0.18215,
-                    prompt="photograph of a man standing in a small office room, realistic, 4k, high resolution",
-                    strength=0.65,
-                    inference_steps=75,
-                ).images[0]
-            )
+        axs[n][0].imshow(ref)
+        axs[n][1].imshow(prop_img)
+        axs[n][2].imshow(base_img)
 
-    if include_sd:
-        col_titles = ["Reference", "Strength = 0", "Strength = 0.6"]
-    else:
-        col_titles = ["Reference", "Strength = 0"]
+    col_titles = ["Reference", "Proposed model", "Baseline"]
 
     for col, title in enumerate(col_titles):
-        axs[0, col].set_title(title, fontsize=12, pad=20)
+        axs[0, col].set_title(title, pad=10)
 
     return fig
 
 
+def save_imgs(prop_path, base_path, out_path):
+    for n, i in enumerate(idxs):
+        ref = blur_faces_opencv(Image.open(prop_path / f"{i}_p.png"))
+        if i == 21:
+            ref = blur_faces_opencv(ref, hardcode=[50, 120, 100, 100])
+        prop_img = Image.open(prop_path / f"{i}_l.png")
+        base_img = Image.open(base_path / f"{i}_l.png")
+
+        ref.save(out_path / f"r_{n}.png")
+        prop_img.save(out_path / f"p_{n}.png")
+        base_img.save(out_path / f"b_{n}.png")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-p", "--path", type=Path)
-    parser.add_argument("--ckpt", type=str)
-    parser.add_argument("--out", type=Path, required=False)
-    parser.add_argument("--runs", type=int, required=False, default=1)
-    parser.add_argument(
-        "--sd", action="store_true", required=False, default=False
-    )
+    parser.add_argument("-p", "--path", type=Path, required=True)
+    parser.add_argument("-o", "--out", type=Path, required=False, default=None)
+    parser.add_argument("-i", "--individual", action="store_true")
     args = parser.parse_args()
-    args.ckpt = os.path.basename(args.ckpt)
 
-    if not args.out:
-        args.out = Path(os.getcwd())
-    else:
-        args.out.mkdir(exist_ok=True)
-
-    if not args.ckpt.endswith(".ckpt"):
-        args.ckpt += ".ckpt"
-
-    sd = load_sd(args.path.parents[1], torch.device(0))
-    torch.set_grad_enabled(False)
-
-    testset_path = args.path / f"testset_inference_{args.ckpt}"
-    p = torch.load(testset_path / "all_preds.pt", mmap=True)
+    prop_path = args.path / "testset_inference_final_best.ckpt"
+    base_path = args.path / "testset_inference_baseline_best.ckpt"
 
     plt.rcParams.update(
         {
             "font.family": "serif",
+            "font.size": 10,
             "text.usetex": True,
             "pgf.rcfonts": False,
             "figure.autolayout": True,
         }
     )
-    for i in range(args.runs):
-        fig = generate_fig(testset_path, p, sd)
-        plt.tight_layout()
-        fig.savefig(args.out / f"samples_{i}.pdf", backend="pgf")
+
+    if args.individual:
+        save_imgs(prop_path, base_path, args.out)
+        sys.exit(0)
+
+    fig = generate_fig(args.path / "reference", prop_path, base_path)
+    plt.tight_layout()
+    # fig.savefig(args.path / "figures" / f"samples_{i}.pdf", backend="pgf")
+    fig.savefig("samples.pdf", backend="pgf", bbox_inches="tight")
+
+    kwargs = {"backend": "pgf", "bbox_inches": "tight"}
+    fig.savefig("samples.pdf", **kwargs)
+
+    if args.out:
+        fig.savefig(args.out / "samples_1.pdf", **kwargs)
+    else:
+        fig.savefig("samples.pdf", **kwargs)
