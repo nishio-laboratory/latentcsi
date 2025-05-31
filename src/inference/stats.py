@@ -11,7 +11,7 @@ import os
 from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
-from skimage.metrics import structural_similarity as ssim
+from skimage.metrics import structural_similarity
 from skimage.metrics import mean_squared_error as mse
 from src.inference.fid import compute_fid_inception as fid_inception
 
@@ -25,7 +25,6 @@ def compute_stats(p: List[PILImage], y: List[PILImage]) -> dict:
         img = torch.Tensor(np.asarray(img))
         ref = torch.Tensor(np.asarray(ref))
 
-        pe = torch.sum(torch.abs(img - ref))
         rmse = np.sqrt(
             mse(
                 np.asarray(img, dtype=np.uint8),
@@ -35,7 +34,7 @@ def compute_stats(p: List[PILImage], y: List[PILImage]) -> dict:
         pixel_error_sum += rmse
         s = cast(
             float,
-            ssim(
+            structural_similarity(
                 np.asarray(img),
                 np.asarray(ref),
                 channel_axis=2,
@@ -70,6 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt", type=str)
     parser.add_argument("--out", type=Path, required=False)
     parser.add_argument("--crop", action="store_true")
+    parser.add_argument("--save", action="store_true")
     args = parser.parse_args()
     args.ckpt = os.path.basename(args.ckpt)
 
@@ -92,10 +92,13 @@ if __name__ == "__main__":
             desc="loading preds",
         )
     ]
+    reals_filepaths = sorted(glob.glob(str(testset_path / "*_p.png")))
+    if len(reals_filepaths) == 0:
+        reals_filepaths = sorted(glob.glob(str(testset_path.parents[0] / "reference/*")))
     y: List[PILImage] = [
         Image.open(i)
         for i in tqdm(
-            sorted(glob.glob(str(testset_path / "*_p.png"))),
+            reals_filepaths,
             desc="loading reals",
         )
     ]
@@ -114,8 +117,10 @@ if __name__ == "__main__":
     ]
     for i in output_strings:
         print(i)
-    with open(testset_path / "stats.txt", mode="a+") as f:
-        f.write("\n" + "\n".join(output_strings) + "\n")
+
+    if args.save:
+        with open(testset_path / "stats.txt", mode="a+") as f:
+            f.write("\n" + "\n".join(output_strings) + "\n")
 
 
 # python -m src.figures.strengths --path /mnt/nas/esrh/csi_image_data/datasets/walking/ --ckpt walking_vaelike_512_4st_run2mlp_cnn_val_loss=5.283313751220703.ckpt
