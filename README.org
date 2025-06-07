@@ -16,3 +16,12 @@
 
 All scripts take a =-p/--path= parameter which always refers to the
 top level =dir=.
+
+
+* Data locations
+On Tsubame:
+/gs/fs/tga-nlab/eshan/csi_image_data/datasets/<dataset_name>/
+
+CSI data (x): csi.npy
+Latent targets (y): targets/targets_latents.pt
+Photos: photos.pt

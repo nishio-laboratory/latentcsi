@@ -94,7 +94,9 @@ if __name__ == "__main__":
     ]
     reals_filepaths = sorted(glob.glob(str(testset_path / "*_p.png")))
     if len(reals_filepaths) == 0:
-        reals_filepaths = sorted(glob.glob(str(testset_path.parents[0] / "reference/*")))
+        reals_filepaths = sorted(
+            glob.glob(str(testset_path.parents[0] / "reference/*"))
+        )
     y: List[PILImage] = [
         Image.open(i)
         for i in tqdm(
