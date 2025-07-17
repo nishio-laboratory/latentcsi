@@ -23,21 +23,31 @@ class Generator(nn.Module):
         self.initial_size = 64
         self.fc = nn.Linear(
             input_dim,
-            self.initial_channels * self.initial_size * self.initial_size
+            self.initial_channels * self.initial_size * self.initial_size,
         )
-        self.upsample_blocks = nn.ModuleList([
-            self._upsampling_block(initial_channels, initial_channels//2),
-            self._upsampling_block(initial_channels//2, initial_channels//4),
-            self._upsampling_block(initial_channels//4, initial_channels//8),
-        ])
+        self.upsample_blocks = nn.ModuleList(
+            [
+                self._upsampling_block(
+                    initial_channels, initial_channels // 2
+                ),
+                self._upsampling_block(
+                    initial_channels // 2, initial_channels // 4
+                ),
+                self._upsampling_block(
+                    initial_channels // 4, initial_channels // 8
+                ),
+            ]
+        )
         self.final_conv = nn.Sequential(
-            nn.Conv2d(initial_channels//8, 3, kernel_size=3, padding=1),
-            nn.Tanh()
+            nn.Conv2d(initial_channels // 8, 3, kernel_size=3, padding=1),
+            nn.Tanh(),
         )
 
     def _upsampling_block(self, in_ch, out_ch):
         return nn.Sequential(
-            nn.ConvTranspose2d(in_ch, out_ch, kernel_size=4, stride=2, padding=1),
+            nn.ConvTranspose2d(
+                in_ch, out_ch, kernel_size=4, stride=2, padding=1
+            ),
             nn.Conv2d(out_ch, out_ch, kernel_size=3, padding=1),
             nn.BatchNorm2d(out_ch),
             nn.ReLU(),
@@ -45,11 +55,12 @@ class Generator(nn.Module):
 
     def forward(self, z):
         x = self.fc(z)
-        x = x.view(-1, self.initial_channels, self.initial_size, self.initial_size)
+        x = x.view(
+            -1, self.initial_channels, self.initial_size, self.initial_size
+        )
         for block in self.upsample_blocks:
             x = block(x)
         return self.final_conv(x)
-
 
 
 class Discriminator(nn.Module):
@@ -94,16 +105,21 @@ class GAN(L.LightningModule):
         opt_g, opt_d = self.optimizers()
         print([(i.shape, i.dtype) for i in batch])
         z, _, real_images = batch
-        real_images = permute_color_chan(real_images).to(next(self.generator.parameters()).dtype)
+        real_images = permute_color_chan(real_images).to(
+            next(self.generator.parameters()).dtype
+        )
         opt_d.zero_grad()
         fake_images = self(z).detach()
         real_logits = self.discriminator(real_images)
         fake_logits = self.discriminator(fake_images)
 
-        loss_d = -(
-            torch.mean(torch.log(real_logits + 1e-8)) +
-            torch.mean(torch.log(1 - fake_logits + 1e-8))
-        ) / 2
+        loss_d = (
+            -(
+                torch.mean(torch.log(real_logits + 1e-8))
+                + torch.mean(torch.log(1 - fake_logits + 1e-8))
+            )
+            / 2
+        )
 
         # backprop & step D
         self.manual_backward(loss_d)
@@ -111,7 +127,7 @@ class GAN(L.LightningModule):
 
         # ——— Train Generator ———
         opt_g.zero_grad()
-        fake_images = self(z)                     # fresh fakes
+        fake_images = self(z)  # fresh fakes
         fake_logits = self.discriminator(fake_images)
         loss_g = -torch.mean(torch.log(fake_logits + 1e-8))
 
@@ -121,7 +137,7 @@ class GAN(L.LightningModule):
 
         # log once per step
         self.log("loss/discriminator", loss_d, prog_bar=True)
-        self.log("loss/generator",     loss_g, prog_bar=True)
+        self.log("loss/generator", loss_g, prog_bar=True)
 
     def validation_step(self, batch, batch_idx):
         inputs, _, targets = batch
@@ -144,6 +160,7 @@ class GAN(L.LightningModule):
 
     def ckpt_name(self):
         return "gan_pixel_{val_loss}"
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -188,6 +205,7 @@ def main():
     trainer = L.Trainer(**trainer_config)
     trainer.fit(model, train, val)
     trainer.test(dataloaders=test, ckpt_path="best")
+
 
 if __name__ == "__main__":
     main()

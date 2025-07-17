@@ -40,8 +40,8 @@ RUN python3.10 -m pip install --no-cache-dir --upgrade pip uv==0.1.11 && \
     scikit-image \
     matplotlib \
     brisque \
-    torchmetrics[image]
+    torchmetrics[image] \
+    construct
 
-
-
+WORKDIR /code
 CMD ["/bin/bash"]

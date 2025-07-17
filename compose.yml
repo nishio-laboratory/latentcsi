@@ -1,0 +1,17 @@
+services:
+  ae_server:
+    image: "csi_image"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: [gpu]
+    volumes:
+      - ".:/code"
+    ports:
+      - "9999:9999"
+    command: "python3 -m src.realtime.server"
+    stdin_open: true
+    tty: true
