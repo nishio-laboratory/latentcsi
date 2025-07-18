@@ -77,8 +77,6 @@ class TrainingServerBase(ABC):
                             _ = await self.queue.get()
                         await self.queue.put((inp, lat))
                     self.train_received(inputs, latents)
-                    if self.queue.qsize() > 0:
-                        print(f"qsize: {self.queue.qsize()}")
                 else:
                     out = await self.dispatch(header, reader)
                     if out:

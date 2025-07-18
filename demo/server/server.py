@@ -72,7 +72,7 @@ class TrainingServer(TrainingServerBase):
         self.batches_trained = 0
 
     def train_received(self, inp, latent):
-        self.last = inp[-1]
+        self.last = inp[-1].unsqueeze(0)
 
     async def train_worker(self):
         print(

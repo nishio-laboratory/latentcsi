@@ -30,7 +30,7 @@ def send_encode_request(
     images: np.ndarray,
     request_id: int = 1,
 ) -> None:
-    payload = image.astype(np.uint8).tobytes()
+    payload = images.astype(np.uint8).tobytes()
     header = struct.pack(
         HEADER_FMT,
         MessageType.ENCODE,

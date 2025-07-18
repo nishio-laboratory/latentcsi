@@ -1,64 +1,69 @@
-# (add-hook 'after-save-hook (lambda () (interactive) (call-process-shell-command "rsync -avP ~/prog/csi_to_image :/home/esrh/ --exclude \".*\" --exclude \"env\"" nil 0)))
-# (setq after-save-hook nil)
-
-from typing import Literal, Tuple
 import socket
 import struct
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, Future
+from pathlib import Path
+from typing import Literal, Tuple, List
+
 import numpy as np
 import pyrealsense2 as rs
-import argparse
-from demo.sensor.parse import parse
-from demo.sensor.send_to_edge import *
-from demo.sensor.util import Buffer
 from PIL import Image
 
+from demo.sensor.parse import parse
+from demo.sensor.send_to_edge import send_encode_request, receive_encode_response
+from demo.sensor.util import Buffer
 
-def preprocess_resize(im, left_offset=34):
-    im = Image.fromarray(im)
-    im = im.resize((640, 512), resample=Image.Resampling.BICUBIC).crop(
-        (left_offset, 0, 512 + left_offset, 512)
-    )
-    im = np.asarray(im, dtype=np.uint8)
-    im = im.transpose(2, 0, 1)
-    return im
-
-
-def make_socket(address: Tuple[str, int], tcp=False) -> socket.socket:
+def make_socket(address: Tuple[str, int], tcp: bool = False) -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM if tcp else socket.SOCK_DGRAM)
     if tcp:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1_048_576)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-    else:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.connect(address)
     return sock
 
+TRAIN_HEADER_FMT = "!5sIII"
 
-format_type = Literal["HESU", "HT", "NOHT", "VHT"]
+FormatType = Literal["HESU", "HT", "NOHT", "VHT"]
+
+
+def preprocess_resize(im: np.ndarray, left_offset: int = 34) -> np.ndarray:
+    im = Image.fromarray(im)
+    im = im.resize((640, 512), resample=Image.Resampling.BICUBIC)
+    im = im.crop((left_offset, 0, 512 + left_offset, 512))
+    arr = np.asarray(im, dtype=np.uint8)
+    return arr.transpose(2, 0, 1)
 
 
 class DatasetCollector:
     def __init__(
         self,
         frequency: int,
-        format: format_type,
+        format: FormatType,
         delay: int,
         samp_count: int,
         tx_ip: str = "192.168.2.5",
         server_ip: str = "192.168.1.221",
         start_rx_process: bool = False,
     ):
-        self.rx_cmd_string = f"feitcsi -f {frequency} -w 160 \
-        -r {format}"
-        self.tx_cmd_string = f"feitcsi --mode inject -f {frequency} \
-        -w 160 -r {format} --inject-delay {delay}"
+        self.rx_cmd_string = f"feitcsi -f {frequency} -w 160 -r {format}"
+        self.tx_cmd_string = f"feitcsi --mode inject -f {frequency} -w 160 -r {format} --inject-delay {delay}"
         self.tx_ip = tx_ip
         self.server_ip = server_ip
         self.running = False
         self.start_rx_process = start_rx_process
         self.samp_count = samp_count
+        self.edge_addr = ("10.0.0.1", 8000)
+        self.executor = ThreadPoolExecutor(max_workers=4)
+        self.pending: List[Tuple[Future, bytes]] = []
+
+    def _encode_rpc(self, images: np.ndarray, req_id: int) -> np.ndarray:
+        # Open fresh socket per call to avoid threading collisions
+        sock = make_socket(self.edge_addr, tcp=True)
+        send_encode_request(sock, images, request_id=req_id)
+        latents = receive_encode_response(sock, request_id=req_id)
+        sock.close()
+        return latents
 
     def check_tx_running(self) -> bool:
         out = subprocess.run(
@@ -93,19 +98,16 @@ class DatasetCollector:
         return preprocess_resize(photo)
 
     def get_csi(self) -> np.ndarray:
-        csi = parse(self.rx_socket.recv(272 + 4 * 1 * 1992))[0][
-            "csi_matrix"
-        ].flatten()
+        raw = self.rx_socket.recv(272 + 4 * 1 * 1992)
+        csi = parse(raw)[0]["csi_matrix"].flatten()
         return ((np.abs(csi) - 142.76) / 78.70).astype(np.float32)
 
     def start(self):
         self.running = True
-
+        # sockets
         self.rx_socket = make_socket(("localhost", 8008))
         self.tx_socket = make_socket((self.tx_ip, 8008))
-        self.server_socket = make_socket((self.server_ip, 9999), True)
-
-        self.inference_socket = make_socket(("10.0.0.1", 8000), True)
+        self.server_socket = make_socket((self.server_ip, 9999), tcp=True)
 
         if self.start_rx_process:
             self.rx_process = subprocess.Popen(
@@ -113,128 +115,102 @@ class DatasetCollector:
                 stderr=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
             )
-            if self.rx_process.poll() == 1:
-                raise Exception(
-                    f"couldn't start rx_process: {self.rx_process.stderr.read()}"
-                )
             time.sleep(2)
 
         if not self.check_tx_running():
-            raise Exception("tx is not up... feitcsi -u not running")
+            raise RuntimeError("tx is not up... feitcsi -u not running")
         if not self.check_rx_running():
-            raise Exception("rx is not up... feitcsi -u not running")
+            raise RuntimeError("rx is not up... feitcsi -u not running")
 
         self.rx_socket.send(self.rx_cmd_string.encode())
         self.tx_socket.send(self.tx_cmd_string.encode())
-
         self.init_camera()
 
-        total_times = []
-        sending_times = []
+        buf_size = 8
+        photo_buf = Buffer((8, 3, 512, 512), np.uint8)
+        csi_buf = Buffer((8, 1992), np.float32)
+        total_times, send_times = [], []
 
-        buffer_size = 8
-        photo_buffer = Buffer((buffer_size, 3, 512, 512), np.uint8)
-        csi_buffer = Buffer((buffer_size, 1992), np.float32)
         for i in range(self.samp_count):
-            start = time.time()
-            photo_buffer.add(self.get_photo())
-            csi_buffer.add(self.get_csi())
+            t0 = time.time()
+            photo_buf.add(self.get_photo())
+            csi_buf.add(self.get_csi())
 
-            if photo_buffer.full():
-                send_encode_request(self.inference_socket, photo_buffer.buffer)
+            if photo_buf.full():
+                imgs = photo_buf.buffer.copy()
+                csis = csi_buf.buffer.copy().tobytes()
+                # submit async encode RPC
+                fut = self.executor.submit(self._encode_rpc, imgs, i)
+                self.pending.append((fut, csis))
+                photo_buf.clear()
+                csi_buf.clear()
 
+            # check for completed RPCs and send to training server
+            for fut, csis_bytes in list(self.pending):
+                if fut.done():
+                    lat = fut.result()
+                    lat_bytes = lat.tobytes()
+                    header = struct.pack(
+                        TRAIN_HEADER_FMT,
+                        b"train",
+                        len(csis_bytes),
+                        len(lat_bytes),
+                        buf_size,
+                    )
+                    self.server_socket.sendall(header + csis_bytes + lat_bytes)
+                    self.pending.remove((fut, csis_bytes))
+                    send_times.append(time.time() - t0)
 
-            if photo_buffer.full():
-                now = time.time()
-                latents = send_and_recv_encode(self.inference_socket, photo_buffer.buffer)
-                input_bytes = csi_buffer.buffer.tobytes()
-                latent_bytes = latents.tobytes()
-                header = b"train" + struct.pack(
-                    "!III", len(input_bytes), len(latent_bytes), buffer_size
-                )
-                self.server_socket.sendall(header + input_bytes + latent_bytes)
-                photo_buffer.clear()
-                csi_buffer.clear()
+            total_times.append(time.time() - t0)
 
-                sending_times.append(time.time() - now)
+        # wait for any remaining RPCs
+        for fut, csis_bytes in self.pending:
+            lat = fut.result()
+            lat_bytes = lat.tobytes()
+            hdr = struct.pack(TRAIN_HEADER_FMT, b"train", len(csis_bytes), len(lat_bytes), buf_size)
+            self.server_socket.sendall(hdr + csis_bytes + lat_bytes)
 
-            total_times.append(time.time() - start)
-
-        print(f"total {np.mean(total_times)}")
-        print(f"sending {np.median(sending_times)}")
+        print(f"avg total time: {np.mean(total_times)}")
+        print(f"median send time: {np.median(send_times)}")
         self.stop()
 
     def stop(self):
-        if self.running:
-            self.server_socket.close()
-            self.inference_socket.close()
-
-        self.running = False
+        if not self.running:
+            return
+        self.server_socket.close()
+        # optionally stop CSI processes
         if self.check_tx_running():
-            self.tx_socket.send("stop".encode())
+            self.tx_socket.send(b"stop")
         if self.check_rx_running():
-            self.rx_socket.send("stop".encode())
+            self.rx_socket.send(b"stop")
             if self.start_rx_process:
                 self.rx_process.terminate()
+        self.running = False
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    parser.add_argument(
-        "--start-rx-process",
-        action="store_true",
-        help="automatically start feitcsi -u process on this machine",
-    )
-    parser.add_argument(
-        "-f",
-        "--frequency",
-        type=int,
-        default=5180,
-        help="transmission frequency channel",
-    )
-    parser.add_argument(
-        "--inject-delay",
-        type=int,
-        default=10000,
-        help="delay between packets in microseconds",
-    )
-    parser.add_argument(
-        "--samples",
-        type=int,
-        default=15000,
-        help="number of samples to collect",
-    )
-    parser.add_argument(
-        "-r", "--format", type=str, default="HESU", help="packet type"
-    )
-    parser.add_argument(
-        "-tx",
-        "--tx-ip",
-        type=str,
-        default="192.168.2.5",
-        help="TX machine ip address",
-    )
-    parser.add_argument(
-        "--server-ip",
-        type=str,
-        default="192.168.1.221",
-        help="Training server ip",
-    )
-    args = parser.parse_args()
+    import argparse
+
+    p = argparse.ArgumentParser()
+    p.add_argument("-f", "--frequency", type=int, default=5180)
+    p.add_argument("--inject-delay", type=int, default=10000)
+    p.add_argument("--samples", type=int, default=15000)
+    p.add_argument("-r", "--format", type=str, default="HESU")
+    p.add_argument("--start-rx-process", action="store_true")
+    p.add_argument("-tx", "--tx-ip", type=str, default="192.168.2.5")
+    p.add_argument("--server-ip", type=str, default="192.168.1.221")
+    args = p.parse_args()
 
     dc = DatasetCollector(
         args.frequency,
         args.format,
         args.inject_delay,
         args.samples,
-        start_rx_process=args.start_rx_process,
         tx_ip=args.tx_ip,
         server_ip=args.server_ip,
+        start_rx_process=args.start_rx_process,
     )
     try:
         dc.start()
-    except Exception as e:
+    finally:
         dc.stop()
-        raise e
