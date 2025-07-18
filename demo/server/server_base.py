@@ -1,16 +1,9 @@
 from construct import Struct, Const, Int32ub, Float32l, Array
 from abc import ABC, abstractmethod
 import struct
-from typing import Any, ByteString, Optional, Union
+from typing import ByteString, Optional
 import torch
 import asyncio
-
-TrainPacket = Struct(
-    "hdr" / Const(b"train"),
-    "length" / Int32ub,
-    "input" / Array(lambda ctx: ctx.length, Float32l),
-    "latent" / Array(4 * 64 * 64, Float32l),
-)
 
 InferPacket = Struct(
     "hdr" / Const(b"infer"),
@@ -69,18 +62,17 @@ class TrainingServerBase(ABC):
             while True:
                 header = await reader.readexactly(5)
                 if header == b"train":
-                    length_bytes = await reader.readexactly(4)
-                    length = struct.unpack("!I", length_bytes)[0]
-                    payload = await reader.readexactly(
-                        4 * length + 4 * 4 * 64 * 64
-                    )
-                    packet = header + length_bytes + payload
-                    parsed = TrainPacket.parse(packet)
-                    inp = torch.tensor(parsed.input, dtype=torch.float32).view(
+                    input_length = struct.unpack("!I", await reader.readexactly(4))[0]
+                    latent_length = struct.unpack("!I", await reader.readexactly(4))[0]
+
+                    input_bytes = await reader.readexactly(input_length)
+                    latent_bytes = await reader.readexactly(latent_length)
+
+                    inp = torch.frombuffer(input_bytes, dtype=torch.float32).view(
                         1, self.model.get_input_dim()
                     )
-                    latent = torch.tensor(
-                        parsed.latent, dtype=torch.float32
+                    latent = torch.frombuffer(
+                        latent_bytes, dtype=torch.float32
                     ).view(1, 4, 64, 64)
                     self.train_received(inp, latent)
                     if self.queue.maxsize and self.queue.full():

@@ -131,12 +131,12 @@ class ImageClientApp:
                 )
                 latent_tensor = torch.tensor(latent.copy())
                 if self.use_sd_post:
-                    latent_tensor *= 0.18125
-                img = taesd.decode(latent_tensor).sample.detach().cpu().numpy()
-                img = np.transpose(img[0], (1, 2, 0))
+                    latent_tensor *= 0.18215
+                with torch.no_grad():
+                    img = taesd.decode(latent_tensor).sample.detach().cpu().squeeze()
                 if self.use_sd_post:
                     img = (img + 1) / 2
-                pil_img = to_pil_image(np.clip(img, 0, 1))
+                pil_img = to_pil_image(img.clip(0, 1))
                 self.root.after(0, self.update_image, pil_img)
 
             except Exception as e:

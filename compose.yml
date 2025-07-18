@@ -1,5 +1,5 @@
 services:
-  ae_server:
+  training_server:
     image: "csi_image"
     deploy:
       resources:
@@ -9,9 +9,21 @@ services:
               count: "all"
               capabilities: [gpu]
     volumes:
-      - ".:/code"
+      - "/home/esrh/trt:/trt"
     ports:
       - "9999:9999"
     command: "python3 -m src.realtime.server"
+    stdin_open: true
+    tty: true
+
+  ae_server:
+    image: jetson-uv-diffusers
+    runtime: nvidia
+    volumes:
+      - ".:/workspace"
+      - "/home/esrh/trt:/trt"
+    ports:
+      - "8000:8000"
+    command: "python3 -m demo.edge.server"
     stdin_open: true
     tty: true

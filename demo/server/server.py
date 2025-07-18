@@ -4,7 +4,7 @@ import struct
 import torch
 import torch.nn.functional as F
 from src.encoder.model import CNNDecoder
-from src.realtime.server_base import TrainableModule, TrainingServerBase
+from demo.server.server_base import TrainableModule, TrainingServerBase
 from typing import ByteString, Optional
 
 
