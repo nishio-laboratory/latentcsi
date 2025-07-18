@@ -5,12 +5,8 @@ from typing import ByteString, Optional
 import torch
 import asyncio
 
-InferPacket = Struct(
-    "hdr" / Const(b"infer"),
-    "length" / Int32ub,
-    "input" / Array(lambda ctx: ctx.length, Float32l),
-)
-
+TRAIN_FMT = "!III"
+TRAIN_SIZE = struct.calcsize(TRAIN_FMT)
 
 class TrainableModule(torch.nn.Module, ABC):
     @abstractmethod
@@ -62,36 +58,27 @@ class TrainingServerBase(ABC):
             while True:
                 header = await reader.readexactly(5)
                 if header == b"train":
-                    input_length = struct.unpack("!I", await reader.readexactly(4))[0]
-                    latent_length = struct.unpack("!I", await reader.readexactly(4))[0]
-
-                    input_bytes = await reader.readexactly(input_length)
-                    latent_bytes = await reader.readexactly(latent_length)
-
-                    inp = torch.frombuffer(input_bytes, dtype=torch.float32).view(
-                        1, self.model.get_input_dim()
+                    input_len, latent_len, bs = struct.unpack(
+                        TRAIN_FMT, await reader.readexactly(TRAIN_SIZE)
                     )
-                    latent = torch.frombuffer(
+                    input_bytes = await reader.readexactly(input_len)
+                    latent_bytes = await reader.readexactly(latent_len)
+
+                    inputs = torch.frombuffer(
+                        input_bytes, dtype=torch.float32
+                    ).view(bs, self.model.get_input_dim())
+                    latents = torch.frombuffer(
                         latent_bytes, dtype=torch.float32
-                    ).view(1, 4, 64, 64)
-                    self.train_received(inp, latent)
-                    if self.queue.maxsize and self.queue.full():
-                        _ = await self.queue.get()
-                    await self.queue.put((inp, latent))
-                elif header == b"infer":
-                    length_bytes = await reader.readexactly(4)
-                    length = struct.unpack("!I", length_bytes)[0]
-                    payload = await reader.readexactly(4 * length)
-                    packet = header + length_bytes + payload
-                    parsed = InferPacket.parse(packet)
-                    inp = torch.tensor(parsed.input, dtype=torch.float32).view(
-                        1, self.model.get_input_dim()
-                    )
-                    self.model.eval()
-                    with torch.no_grad():
-                        out = self.model(inp.to(self.device))[0]
-                    writer.write(out.cpu().numpy().tobytes())
-                    await writer.drain()
+                    ).view(bs, 4, 64, 64)
+                    for i in range(bs):
+                        inp = inputs[i].unsqueeze(0)
+                        lat = latents[i].unsqueeze(0)
+                        if self.queue.maxsize and self.queue.full():
+                            _ = await self.queue.get()
+                        await self.queue.put((inp, lat))
+                    self.train_received(inputs, latents)
+                    if self.queue.qsize() > 0:
+                        print(f"qsize: {self.queue.qsize()}")
                 else:
                     out = await self.dispatch(header, reader)
                     if out:

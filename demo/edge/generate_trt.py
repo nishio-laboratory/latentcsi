@@ -82,7 +82,9 @@ def build_trt_engine(
         "--fp16",
     ]
     subprocess.run(cmd, check=True)
-    print(f"Built TensorRT engine for {name} at {engine_path} ({min_batch}/{opt_batch}/{max_batch})")
+    print(
+        f"Built TensorRT engine for {name} at {engine_path} ({min_batch}/{opt_batch}/{max_batch})"
+    )
     return engine_path
 
 
@@ -91,15 +93,11 @@ def main() -> None:
     ONNX_DIR.mkdir(exist_ok=True)
     TRT_DIR.mkdir(exist_ok=True)
 
-    ae: AutoencoderTiny = AutoencoderTiny.from_pretrained(
-        HF_MODEL
-    ).eval().to("cuda")
-    enc_in: torch.Tensor = torch.zeros(
-        (1, 3, 512, 512), device="cuda"
+    ae: AutoencoderTiny = (
+        AutoencoderTiny.from_pretrained(HF_MODEL).eval().to("cuda")
     )
-    dec_in: torch.Tensor = torch.zeros(
-        (1, 4, 64, 64), device="cuda"
-    )
+    enc_in: torch.Tensor = torch.zeros((1, 3, 512, 512), device="cuda")
+    dec_in: torch.Tensor = torch.zeros((1, 4, 64, 64), device="cuda")
 
     enc_onnx: Path = export_to_onnx(
         ae=ae,
@@ -115,7 +113,10 @@ def main() -> None:
         input_tensor=dec_in,
         input_names=["latent"],
         output_names=["reconstruction"],
-        dynamic_axes={"latent": {0: "batch_size"}, "reconstruction": {0: "batch_size"}},
+        dynamic_axes={
+            "latent": {0: "batch_size"},
+            "reconstruction": {0: "batch_size"},
+        },
     )
 
     build_trt_engine(
@@ -134,6 +135,7 @@ def main() -> None:
         args.opt_batch,
         args.max_batch,
     )
+
 
 if __name__ == "__main__":
     main()

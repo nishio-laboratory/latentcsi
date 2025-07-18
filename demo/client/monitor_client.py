@@ -133,7 +133,12 @@ class ImageClientApp:
                 if self.use_sd_post:
                     latent_tensor *= 0.18215
                 with torch.no_grad():
-                    img = taesd.decode(latent_tensor).sample.detach().cpu().squeeze()
+                    img = (
+                        taesd.decode(latent_tensor)
+                        .sample.detach()
+                        .cpu()
+                        .squeeze()
+                    )
                 if self.use_sd_post:
                     img = (img + 1) / 2
                 pil_img = to_pil_image(img.clip(0, 1))

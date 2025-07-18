@@ -3,6 +3,7 @@ import struct
 from enum import IntEnum
 import numpy as np
 
+
 class MessageType(IntEnum):
     ENCODE = 1
     DECODE = 2
@@ -26,12 +27,16 @@ def _recv_all(sock: socket.socket, n: int) -> bytes:
 
 def send_encode_request(
     sock: socket.socket,
-    image: np.ndarray,
+    images: np.ndarray,
     request_id: int = 1,
 ) -> None:
     payload = image.astype(np.uint8).tobytes()
     header = struct.pack(
-        HEADER_FMT, MessageType.ENCODE, request_id, image.shape[0], len(payload)
+        HEADER_FMT,
+        MessageType.ENCODE,
+        request_id,
+        images.shape[0],
+        len(payload),
     )
     sock.sendall(header + payload)
 
@@ -63,9 +68,11 @@ def receive_encode_response(
     return arr.reshape(bs, 4, 64, 64)
 
 
-def send_and_recv_encode(sock: socket.socket,
-                         image: np.ndarray,
-                         request_id: int = 1,
-                         timeout: float = 5):
+def send_and_recv_encode(
+    sock: socket.socket,
+    image: np.ndarray,
+    request_id: int = 1,
+    timeout: float = 5,
+):
     send_encode_request(sock, image, request_id)
     return receive_encode_response(sock, request_id, timeout)

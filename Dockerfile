@@ -43,5 +43,5 @@ RUN python3.10 -m pip install --no-cache-dir --upgrade pip uv==0.1.11 && \
     torchmetrics[image] \
     construct
 
-WORKDIR /code
+WORKDIR /workspace
 CMD ["/bin/bash"]

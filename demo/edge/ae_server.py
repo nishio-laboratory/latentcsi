@@ -6,19 +6,19 @@ import pycuda.driver as cuda
 import pycuda.autoinit
 from typing import cast
 import struct
+from demo.sensor.send_to_edge import HEADER_FMT, HEADER_SIZE
 
 np.bool = np.bool_
 
-HEADER_FMT = "!bIII"
-HEADER_SIZE = struct.calcsize(HEADER_FMT)
 
 class TRTModel:
     """
     TensorRT model wrapper for dynamic-batch inference.
     """
+
     def __init__(self, engine_path: Path):
         runtime = trt.Runtime(trt.Logger(trt.Logger.ERROR))
-        with engine_path.open('rb') as f:
+        with engine_path.open("rb") as f:
             self.engine = runtime.deserialize_cuda_engine(f.read())
         self.context = self.engine.create_execution_context()
 
@@ -32,34 +32,35 @@ class TRTModel:
         if self.input_idx is None or self.output_idx is None:
             raise RuntimeError("Failed to identify input/output bindings")
 
-        # Dtypes for buffer allocations
-        self.in_dtype = trt.nptype(self.engine.get_binding_dtype(self.input_idx))
-        self.out_dtype = trt.nptype(self.engine.get_binding_dtype(self.output_idx))
+        self.in_dtype = trt.nptype(
+            self.engine.get_binding_dtype(self.input_idx)
+        )
+        self.out_dtype = trt.nptype(
+            self.engine.get_binding_dtype(self.output_idx)
+        )
 
     def infer(self, imgs: np.ndarray) -> np.ndarray:
         # imgs: numpy array of shape (N, C, H, W) matching engine's expected layout
         if imgs.dtype != self.in_dtype:
-            raise ValueError(f"Input array must be {self.in_dtype}, got {imgs.dtype}")
+            raise ValueError(
+                f"Input array must be {self.in_dtype}, got {imgs.dtype}"
+            )
         imgs = np.ascontiguousarray(imgs)
 
-        # Apply dynamic batch shape
-        batch_size = imgs.shape[0]
         self.context.set_binding_shape(self.input_idx, imgs.shape)
 
-        # Allocate device memory and copy input
         d_input = cuda.mem_alloc(imgs.nbytes)
         cuda.memcpy_htod(d_input, imgs)
 
-        # Determine output shape and allocate output buffer
         out_shape = tuple(self.context.get_binding_shape(self.output_idx))
-        output_size = int(np.prod(out_shape)) * np.dtype(self.out_dtype).itemsize
+        output_size = (
+            int(np.prod(out_shape)) * np.dtype(self.out_dtype).itemsize
+        )
         d_output = cuda.mem_alloc(output_size)
 
-        # Execute inference
         bindings = [int(d_input), int(d_output)]
         self.context.execute_v2(bindings)
 
-        # Fetch results back to host
         output = np.empty(out_shape, dtype=self.out_dtype)
         cuda.memcpy_dtoh(output, d_output)
         return output
@@ -70,7 +71,7 @@ class Handler(socketserver.StreamRequestHandler):
         f = self.rfile
         out = self.wfile
         encoder = cast(TRTModel, server.encoder)
-        #decoder = cast(TRTModel, server.decoder)
+        decoder = cast(TRTModel, server.decoder)
         while True:
             hdr = f.read(HEADER_SIZE)
             if len(hdr) < HEADER_SIZE:
@@ -78,9 +79,11 @@ class Handler(socketserver.StreamRequestHandler):
             msg_type, request_id, bs, size = struct.unpack(HEADER_FMT, hdr)
             data = f.read(size)
             if msg_type == 1:
-                arr = np.frombuffer(data, dtype=np.uint8).reshape(
-                    bs, 3, 512, 512
-                ).copy()
+                arr = (
+                    np.frombuffer(data, dtype=np.uint8)
+                    .reshape(bs, 3, 512, 512)
+                    .copy()
+                )
                 out_arr = encoder.infer(arr.astype(np.float32) / 255.0)
             elif msg_type == 2:
                 arr = np.frombuffer(data, dtype=np.float32).reshape(
@@ -91,7 +94,8 @@ class Handler(socketserver.StreamRequestHandler):
                 return
             payload = out_arr.astype(np.float32).tobytes()
             out.write(
-                struct.pack("!bIII", msg_type, request_id, bs, len(payload)) + payload
+                struct.pack("!bIII", msg_type, request_id, bs, len(payload))
+                + payload
             )
             out.flush()
 
@@ -99,7 +103,7 @@ class Handler(socketserver.StreamRequestHandler):
 if __name__ == "__main__":
     host, port = "0.0.0.0", 8000
     encoder = TRTModel(Path("/trt/taesd_encoder_min1o4max8.trt"))
-    #decoder = TRTModel(Path("./trt/taesd_decoder.trt"))
+    # decoder = TRTModel(Path("./trt/taesd_decoder.trt"))
     with socketserver.TCPServer((host, port), Handler) as server:
         server.encoder, server.decoder = encoder, encoder
         print(f"Serving on {host}:{port}...")

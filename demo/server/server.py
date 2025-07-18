@@ -72,7 +72,7 @@ class TrainingServer(TrainingServerBase):
         self.batches_trained = 0
 
     def train_received(self, inp, latent):
-        self.last = inp
+        self.last = inp[-1]
 
     async def train_worker(self):
         print(
@@ -98,12 +98,13 @@ class TrainingServer(TrainingServerBase):
                 targets = torch.cat([s[1] for s in batch], dim=0).to(
                     self.device
                 )
-
                 loss = await asyncio.to_thread(
                     self.model.train_step, inputs, targets
                 )
                 self.batches_trained += 1
-                print(f"Batch {self.batches_trained} trained! Loss: {loss.item():.6f}")
+                print(
+                    f"Batch {self.batches_trained} trained! Loss: {loss.item():.6f}"
+                )
         except asyncio.CancelledError:
             print("Train worker cancelled")
             raise

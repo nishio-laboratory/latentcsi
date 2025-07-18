@@ -9,10 +9,10 @@ services:
               count: "all"
               capabilities: [gpu]
     volumes:
-      - "/home/esrh/trt:/trt"
+      - "/home/esrh/csi_to_image:/workspace"
     ports:
       - "9999:9999"
-    command: "python3 -m src.realtime.server"
+    command: "python3 -m demo.server.server"
     stdin_open: true
     tty: true
 
@@ -24,6 +24,6 @@ services:
       - "/home/esrh/trt:/trt"
     ports:
       - "8000:8000"
-    command: "python3 -m demo.edge.server"
+    command: "python3 -m demo.edge.ae_server"
     stdin_open: true
     tty: true

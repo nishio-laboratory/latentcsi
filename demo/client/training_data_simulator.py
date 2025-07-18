@@ -16,5 +16,9 @@ for i in range(15):
         for inp, lat in zip(csi, latents):
             input_bytes = abs(inp).astype(np.float32).tobytes()
             latent_bytes = lat.contiguous().view(-1).numpy().tobytes()
-            header = b"train" + (struct.pack("!I", len(input_bytes))) + (struct.pack("!I", len(latent_bytes)))
+            header = (
+                b"train"
+                + (struct.pack("!I", len(input_bytes)))
+                + (struct.pack("!I", len(latent_bytes)))
+            )
             sock.sendall(header + input_bytes + latent_bytes)

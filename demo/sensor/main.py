@@ -1,4 +1,4 @@
-# (add-hook 'after-save-hook (lambda () (interactive) (call-process-shell-command "rsync -avP ~/prog/csi_to_image orin3-proxy:/home/esrh/ --exclude \".*\" --exclude \"env\"" nil 0)))
+# (add-hook 'after-save-hook (lambda () (interactive) (call-process-shell-command "rsync -avP ~/prog/csi_to_image :/home/esrh/ --exclude \".*\" --exclude \"env\"" nil 0)))
 # (setq after-save-hook nil)
 
 from typing import Literal, Tuple
@@ -10,7 +10,8 @@ import numpy as np
 import pyrealsense2 as rs
 import argparse
 from demo.sensor.parse import parse
-from demo.sensor.query_inference import *
+from demo.sensor.send_to_edge import *
+from demo.sensor.util import Buffer
 from PIL import Image
 
 
@@ -20,26 +21,18 @@ def preprocess_resize(im, left_offset=34):
         (left_offset, 0, 512 + left_offset, 512)
     )
     im = np.asarray(im, dtype=np.uint8)
-    im = im.transpose(2, 0, 1)[np.newaxis, ...]
+    im = im.transpose(2, 0, 1)
     return im
-
-
-def process_csi(csi):
-    return ((np.abs(csi) - 142.76) / 78.70).astype(np.float32)
 
 
 def make_socket(address: Tuple[str, int], tcp=False) -> socket.socket:
     if tcp:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.setsockopt(
-            socket.SOL_SOCKET, socket.SO_SNDBUF, 1_048_576
-        )
-        sock.setsockopt(
-            socket.IPPROTO_TCP, socket.TCP_NODELAY, 1
-        )
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1_048_576)
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     else:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.connect(address)
+    sock.connect(address)
     return sock
 
 
@@ -103,8 +96,7 @@ class DatasetCollector:
         csi = parse(self.rx_socket.recv(272 + 4 * 1 * 1992))[0][
             "csi_matrix"
         ].flatten()
-        return process_csi(csi)
-
+        return ((np.abs(csi) - 142.76) / 78.70).astype(np.float32)
 
     def start(self):
         self.running = True
@@ -112,6 +104,7 @@ class DatasetCollector:
         self.rx_socket = make_socket(("localhost", 8008))
         self.tx_socket = make_socket((self.tx_ip, 8008))
         self.server_socket = make_socket((self.server_ip, 9999), True)
+
         self.inference_socket = make_socket(("10.0.0.1", 8000), True)
 
         if self.start_rx_process:
@@ -137,26 +130,38 @@ class DatasetCollector:
         self.init_camera()
 
         total_times = []
+        sending_times = []
+
+        buffer_size = 8
+        photo_buffer = Buffer((buffer_size, 3, 512, 512), np.uint8)
+        csi_buffer = Buffer((buffer_size, 1992), np.float32)
         for i in range(self.samp_count):
             start = time.time()
+            photo_buffer.add(self.get_photo())
+            csi_buffer.add(self.get_csi())
 
-            photo = self.get_photo()
-            send_encode_request(self.inference_socket, photo, i)
+            if photo_buffer.full():
+                send_encode_request(self.inference_socket, photo_buffer.buffer)
 
-            csi = self.get_csi()
 
-            latent = receive_encode_response(self.inference_socket, i)
+            if photo_buffer.full():
+                now = time.time()
+                latents = send_and_recv_encode(self.inference_socket, photo_buffer.buffer)
+                input_bytes = csi_buffer.buffer.tobytes()
+                latent_bytes = latents.tobytes()
+                header = b"train" + struct.pack(
+                    "!III", len(input_bytes), len(latent_bytes), buffer_size
+                )
+                self.server_socket.sendall(header + input_bytes + latent_bytes)
+                photo_buffer.clear()
+                csi_buffer.clear()
 
-            input_bytes = csi.tobytes()
-            latent_bytes = latent.tobytes()
-            header = b"train" + struct.pack(
-                "!II", len(input_bytes), len(latent_bytes)
-            )
-            self.server_socket.sendall(header + input_bytes + latent_bytes)
+                sending_times.append(time.time() - now)
 
             total_times.append(time.time() - start)
 
-        print(f"total {np.median(total_times)}")
+        print(f"total {np.mean(total_times)}")
+        print(f"sending {np.median(sending_times)}")
         self.stop()
 
     def stop(self):
