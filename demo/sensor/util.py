@@ -17,7 +17,6 @@ class Buffer:
         self.idx += 1
 
     def clear(self):
-        self.buffer = np.zeros(self.size, dtype=self.dtype)
         self.idx = 0
 
     def full(self) -> bool:

@@ -1,22 +1,26 @@
 import argparse
 from functools import partial
 import socket
+import sys
 import struct
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, Future
-from pathlib import Path
-from typing import Literal, Tuple, List
+from typing import Literal, Tuple
+import threading
+import queue
+from collections import deque
 
 import numpy as np
 import pyrealsense2 as rs
 from PIL import Image
 
 from demo.sensor.parse import parse
-from demo.sensor.send_to_edge import (
-    send_and_recv_encode,
-)
+from demo.sensor.send_to_edge import send_and_recv_encode
 from demo.sensor.util import Buffer
+
+FormatType = Literal["HESU", "HT", "NOHT", "VHT"]
+TRAIN_HEADER_FMT = "!5sIII"
 
 
 def make_socket(address: Tuple[str, int], tcp: bool = False) -> socket.socket:
@@ -30,10 +34,6 @@ def make_socket(address: Tuple[str, int], tcp: bool = False) -> socket.socket:
     return sock
 
 
-TRAIN_HEADER_FMT = "!5sIII"
-
-FormatType = Literal["HESU", "HT", "NOHT", "VHT"]
-
 class DatasetCollector:
     def __init__(
         self,
@@ -46,96 +46,111 @@ class DatasetCollector:
         start_rx_process: bool = False,
     ):
         self.rx_cmd_string = f"feitcsi -f {frequency} -w 160 -r {format}"
-        self.tx_cmd_string = f"feitcsi --mode inject -f {frequency} -w 160 -r {format} --inject-delay {delay}"
+        self.tx_cmd_string = (
+            f"feitcsi --mode inject -f {frequency} -w 160 -r {format}"
+            f" --inject-delay {delay}"
+        )
         self.tx_ip = tx_ip
         self.server_ip = server_ip
-        self.running = False
-        self.start_rx_process = start_rx_process
         self.samp_count = samp_count
+        self.start_rx_process = start_rx_process
         self.edge_addr = ("10.0.0.1", 8000)
-        self.executor = ThreadPoolExecutor(max_workers=4)
-        self.pending: List[Tuple[Future, bytes, int]] = []
+        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.send_queue: queue.Queue[Tuple[bytes, bytes, int]] = queue.Queue()
 
-    def _encode_rpc(self, images: np.ndarray, req_id: int) -> np.ndarray:
-        return send_and_recv_encode(
-            make_socket(self.edge_addr, tcp=True), images, req_id
-        )
+    def _encode(self, images: np.ndarray, req_id: int) -> np.ndarray:
+        sock = make_socket(self.edge_addr, tcp=True)
+        latents = send_and_recv_encode(sock, images, req_id)
+        sock.close()
+        return latents
 
-    def check_tx_running(self) -> bool:
-        out = subprocess.run(
-            f"ssh {self.tx_ip} \"ps auxw | grep '^root.*feitcsi -u'\"",
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        return out.returncode == 0
+    def send_batch(
+        self, csis_bytes: bytes, batch_size: int, t, fut: Future
+    ) -> None:
+        self.send_queue.put((csis_bytes, fut.result().tobytes(), batch_size))
 
-    def check_rx_running(self) -> bool:
-        out = subprocess.run(
-            "ps auxw | grep '^root.*feitcsi -u'",
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        return out.returncode == 0
+    def _sender(self) -> None:
+        while True:
+            csis_bytes, lat_bytes, batch_size = self.send_queue.get()
+            hdr = struct.pack(
+                TRAIN_HEADER_FMT,
+                b"train",
+                len(csis_bytes),
+                len(lat_bytes),
+                batch_size,
+            )
+            self.server_socket.sendmsg([hdr, csis_bytes, lat_bytes])
+            self.send_queue.task_done()
 
-    def init_camera(self):
+    def init_camera(self) -> None:
         self.pipe = rs.pipeline()
         cfg = rs.config()
         cfg.disable_stream(rs.stream.depth)
-        prof = self.pipe.start(cfg)
+        self.frame_queue = rs.frame_queue(8)
+        prof = self.pipe.start(cfg, self.frame_queue)
         color_cam = prof.get_device().query_sensors()[1]
         color_cam.set_option(rs.option.enable_auto_white_balance, True)
 
     def get_photo(self, left_offset: int = 32) -> np.ndarray:
-        im = np.asanyarray(
-            self.pipe.wait_for_frames().get_color_frame().get_data()
-        ).astype(np.uint8)
-        im = Image.fromarray(im).resize(
-            (640, 512), resample=Image.Resampling.BICUBIC
-        )
+        data = self.frame_queue.wait_for_frame().get_data()
+        im = Image.frombuffer(
+            "RGB", (640, 480), data, "raw", "RGB", 0, 1
+        ).resize((640, 512), Image.Resampling.BICUBIC)
         im = im.crop((left_offset, 0, 512 + left_offset, 512))
         arr = np.asarray(im, dtype=np.uint8)
         return arr.transpose(2, 0, 1)
 
     def get_csi(self) -> np.ndarray:
-        raw = self.rx_socket.recv(272 + 4 * 1 * 1992)
-        csi = parse(raw)[0]["csi_matrix"].flatten()
+        latest = None
+        while True:
+            try:
+                latest = self.rx_socket.recv(272 + 4 * 1 * 1992)
+            except BlockingIOError:
+                break
+        if latest is None:
+            self.rx_socket.setblocking(True)
+            print("no csi data... blocking!", file=sys.stderr, flush=True)
+            latest = self.rx_socket.recv(272 + 4 * 1 * 1992)
+            self.rx_socket.setblocking(False)
+        csi = parse(latest)[0]["csi_matrix"].flatten()
         return ((np.abs(csi) - 142.76) / 78.70).astype(np.float32)
 
-    def send_batch(self, csis_bytes: bytes, batch_size: int, fut: Future):
-        try:
-            lat = fut.result()
-        except Exception as e:
-            print(f"Encode RPC failed: {e}")
-            return
-        lat_bytes = lat.tobytes()
-        hdr = struct.pack(
-            TRAIN_HEADER_FMT,
-            b"train",
-            len(csis_bytes),
-            len(lat_bytes),
-            batch_size,
-        )
-        self.server_socket.sendall(hdr + csis_bytes + lat_bytes)
-
-    def start(self):
+    def start(self) -> None:
         self.running = True
         self.rx_socket = make_socket(("localhost", 8008))
+        self.rx_socket.setblocking(False)
         self.tx_socket = make_socket((self.tx_ip, 8008))
         self.server_socket = make_socket((self.server_ip, 9999), tcp=True)
+        threading.Thread(target=self._sender, daemon=True).start()
 
         if self.start_rx_process:
             self.rx_process = subprocess.Popen(
                 ["sudo", "feitcsi", "-u", "-v"],
-                stderr=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
             )
             time.sleep(2)
 
-        if not self.check_tx_running():
+        if (
+            subprocess.run(
+                f"ssh {self.tx_ip} \"ps auxw | grep '^root.*feitcsi -u'\"",
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode
+            != 0
+        ):
             raise RuntimeError("tx is not up... feitcsi -u not running")
-        if not self.check_rx_running():
+
+        if (
+            subprocess.run(
+                "ps auxw | grep '^root.*feitcsi -u'",
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            ).returncode
+            != 0
+        ):
             raise RuntimeError("rx is not up... feitcsi -u not running")
 
         self.rx_socket.send(self.rx_cmd_string.encode())
@@ -143,58 +158,72 @@ class DatasetCollector:
         self.init_camera()
 
         buf_size = 8
-        csi_smoothing_window = 4
+        win_size = 4
         photo_buf = Buffer((buf_size, 3, 512, 512), np.uint8)
         csi_buf = Buffer((buf_size, 1992), np.float32)
-        csi_smoothing_buf = np.zeros((csi_smoothing_window, 1992), np.float32)
+        csi_window = deque(maxlen=win_size)
 
         start_time = time.time()
-        for i in range(self.samp_count):
-            photo_buf.add(self.get_photo())
-            for j in range(csi_smoothing_window):
-                csi_smoothing_buf[j] = self.get_csi()
-            csi_buf.add(np.mean(csi_smoothing_buf, axis=0))
+        try:
+            for idx in range(self.samp_count):
+                photo_buf.add(self.get_photo())
+                csi_window.append(self.get_csi())
+                if len(csi_window) == win_size:
+                    csi_buf.add(np.mean(np.stack(csi_window), axis=0))
 
-            if photo_buf.full():
-                imgs = photo_buf.buffer.copy()
-                csis = csi_buf.buffer.copy().tobytes()
-                fut = self.executor.submit(self._encode_rpc, imgs, i)
-                fut.add_done_callback(
-                    partial(self.send_batch, csis, buf_size)
-                )
-                photo_buf.clear()
-                csi_buf.clear()
+                if photo_buf.full() and len(csi_window) == win_size:
+                    imgs = photo_buf.buffer.copy()
+                    csis = csi_buf.buffer.copy().tobytes()
+                    fut = self.executor.submit(self._encode, imgs, idx)
+                    fut.add_done_callback(
+                        partial(self.send_batch, csis, buf_size, time.time())
+                    )
+                    photo_buf.clear()
+                    csi_buf.clear()
+        except KeyboardInterrupt:
+            print("Stopping...", file=sys.stderr)
+        finally:
+            self.executor.shutdown(wait=True)
+            self.send_queue.join()
+            elapsed = time.time() - start_time
+            print(
+                f"avg_time: {elapsed / self.samp_count} s",
+                file=sys.stderr,
+                flush=True,
+            )
+            self.stop()
 
-        print("done")
-        self.executor.shutdown(wait=True)
-        print(f"avg_time: {(time.time() - start_time) / self.samp_count}")
-
-        self.stop()
-
-    def stop(self):
-        if not self.running:
+    def stop(self) -> None:
+        if not getattr(self, "running", False):
             return
-        self.executor.shutdown(wait=True)
+
         self.server_socket.close()
-        if self.check_tx_running():
+        self.pipe.stop()
+
+        try:
             self.tx_socket.send(b"stop")
-        if self.check_rx_running():
+        except Exception:
+            pass
+
+        try:
             self.rx_socket.send(b"stop")
             if self.start_rx_process:
                 self.rx_process.terminate()
+        except Exception:
+            pass
         self.running = False
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("-f", "--frequency", type=int, default=5180)
-    p.add_argument("--inject-delay", type=int, default=10000)
-    p.add_argument("--samples", type=int, default=15000)
-    p.add_argument("-r", "--format", type=str, default="HESU")
-    p.add_argument("--start-rx-process", action="store_true")
-    p.add_argument("-tx", "--tx-ip", type=str, default="192.168.2.5")
-    p.add_argument("--server-ip", type=str, default="192.168.1.221")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-f", "--frequency", type=int, default=5180)
+    parser.add_argument("--inject-delay", type=int, default=10000)
+    parser.add_argument("--samples", type=int, default=15000)
+    parser.add_argument("-r", "--format", type=str, default="HESU")
+    parser.add_argument("--start-rx-process", action="store_true")
+    parser.add_argument("-tx", "--tx-ip", type=str, default="192.168.2.5")
+    parser.add_argument("--server-ip", type=str, default="192.168.1.221")
+    args = parser.parse_args()
 
     dc = DatasetCollector(
         args.frequency,
@@ -205,7 +234,4 @@ if __name__ == "__main__":
         server_ip=args.server_ip,
         start_rx_process=args.start_rx_process,
     )
-    try:
-        dc.start()
-    finally:
-        dc.stop()
+    dc.start()
