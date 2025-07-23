@@ -1,3 +1,5 @@
+import argparse
+from functools import partial
 import socket
 import struct
 import subprocess
@@ -11,29 +13,26 @@ import pyrealsense2 as rs
 from PIL import Image
 
 from demo.sensor.parse import parse
-from demo.sensor.send_to_edge import send_encode_request, receive_encode_response
+from demo.sensor.send_to_edge import (
+    send_and_recv_encode,
+)
 from demo.sensor.util import Buffer
 
+
 def make_socket(address: Tuple[str, int], tcp: bool = False) -> socket.socket:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM if tcp else socket.SOCK_DGRAM)
+    sock = socket.socket(
+        socket.AF_INET, socket.SOCK_STREAM if tcp else socket.SOCK_DGRAM
+    )
     if tcp:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1_048_576)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     sock.connect(address)
     return sock
 
+
 TRAIN_HEADER_FMT = "!5sIII"
 
 FormatType = Literal["HESU", "HT", "NOHT", "VHT"]
-
-
-def preprocess_resize(im: np.ndarray, left_offset: int = 34) -> np.ndarray:
-    im = Image.fromarray(im)
-    im = im.resize((640, 512), resample=Image.Resampling.BICUBIC)
-    im = im.crop((left_offset, 0, 512 + left_offset, 512))
-    arr = np.asarray(im, dtype=np.uint8)
-    return arr.transpose(2, 0, 1)
-
 
 class DatasetCollector:
     def __init__(
@@ -55,15 +54,12 @@ class DatasetCollector:
         self.samp_count = samp_count
         self.edge_addr = ("10.0.0.1", 8000)
         self.executor = ThreadPoolExecutor(max_workers=4)
-        self.pending: List[Tuple[Future, bytes]] = []
+        self.pending: List[Tuple[Future, bytes, int]] = []
 
     def _encode_rpc(self, images: np.ndarray, req_id: int) -> np.ndarray:
-        # Open fresh socket per call to avoid threading collisions
-        sock = make_socket(self.edge_addr, tcp=True)
-        send_encode_request(sock, images, request_id=req_id)
-        latents = receive_encode_response(sock, request_id=req_id)
-        sock.close()
-        return latents
+        return send_and_recv_encode(
+            make_socket(self.edge_addr, tcp=True), images, req_id
+        )
 
     def check_tx_running(self) -> bool:
         out = subprocess.run(
@@ -91,20 +87,40 @@ class DatasetCollector:
         color_cam = prof.get_device().query_sensors()[1]
         color_cam.set_option(rs.option.enable_auto_white_balance, True)
 
-    def get_photo(self) -> np.ndarray:
-        photo = np.asanyarray(
+    def get_photo(self, left_offset: int = 32) -> np.ndarray:
+        im = np.asanyarray(
             self.pipe.wait_for_frames().get_color_frame().get_data()
         ).astype(np.uint8)
-        return preprocess_resize(photo)
+        im = Image.fromarray(im).resize(
+            (640, 512), resample=Image.Resampling.BICUBIC
+        )
+        im = im.crop((left_offset, 0, 512 + left_offset, 512))
+        arr = np.asarray(im, dtype=np.uint8)
+        return arr.transpose(2, 0, 1)
 
     def get_csi(self) -> np.ndarray:
         raw = self.rx_socket.recv(272 + 4 * 1 * 1992)
         csi = parse(raw)[0]["csi_matrix"].flatten()
         return ((np.abs(csi) - 142.76) / 78.70).astype(np.float32)
 
+    def send_batch(self, csis_bytes: bytes, batch_size: int, fut: Future):
+        try:
+            lat = fut.result()
+        except Exception as e:
+            print(f"Encode RPC failed: {e}")
+            return
+        lat_bytes = lat.tobytes()
+        hdr = struct.pack(
+            TRAIN_HEADER_FMT,
+            b"train",
+            len(csis_bytes),
+            len(lat_bytes),
+            batch_size,
+        )
+        self.server_socket.sendall(hdr + csis_bytes + lat_bytes)
+
     def start(self):
         self.running = True
-        # sockets
         self.rx_socket = make_socket(("localhost", 8008))
         self.tx_socket = make_socket((self.tx_ip, 8008))
         self.server_socket = make_socket((self.server_ip, 9999), tcp=True)
@@ -127,58 +143,39 @@ class DatasetCollector:
         self.init_camera()
 
         buf_size = 8
-        photo_buf = Buffer((8, 3, 512, 512), np.uint8)
-        csi_buf = Buffer((8, 1992), np.float32)
-        total_times, send_times = [], []
+        csi_smoothing_window = 4
+        photo_buf = Buffer((buf_size, 3, 512, 512), np.uint8)
+        csi_buf = Buffer((buf_size, 1992), np.float32)
+        csi_smoothing_buf = np.zeros((csi_smoothing_window, 1992), np.float32)
 
+        start_time = time.time()
         for i in range(self.samp_count):
-            t0 = time.time()
             photo_buf.add(self.get_photo())
-            csi_buf.add(self.get_csi())
+            for j in range(csi_smoothing_window):
+                csi_smoothing_buf[j] = self.get_csi()
+            csi_buf.add(np.mean(csi_smoothing_buf, axis=0))
 
             if photo_buf.full():
                 imgs = photo_buf.buffer.copy()
                 csis = csi_buf.buffer.copy().tobytes()
-                # submit async encode RPC
                 fut = self.executor.submit(self._encode_rpc, imgs, i)
-                self.pending.append((fut, csis))
+                fut.add_done_callback(
+                    partial(self.send_batch, csis, buf_size)
+                )
                 photo_buf.clear()
                 csi_buf.clear()
 
-            # check for completed RPCs and send to training server
-            for fut, csis_bytes in list(self.pending):
-                if fut.done():
-                    lat = fut.result()
-                    lat_bytes = lat.tobytes()
-                    header = struct.pack(
-                        TRAIN_HEADER_FMT,
-                        b"train",
-                        len(csis_bytes),
-                        len(lat_bytes),
-                        buf_size,
-                    )
-                    self.server_socket.sendall(header + csis_bytes + lat_bytes)
-                    self.pending.remove((fut, csis_bytes))
-                    send_times.append(time.time() - t0)
+        print("done")
+        self.executor.shutdown(wait=True)
+        print(f"avg_time: {(time.time() - start_time) / self.samp_count}")
 
-            total_times.append(time.time() - t0)
-
-        # wait for any remaining RPCs
-        for fut, csis_bytes in self.pending:
-            lat = fut.result()
-            lat_bytes = lat.tobytes()
-            hdr = struct.pack(TRAIN_HEADER_FMT, b"train", len(csis_bytes), len(lat_bytes), buf_size)
-            self.server_socket.sendall(hdr + csis_bytes + lat_bytes)
-
-        print(f"avg total time: {np.mean(total_times)}")
-        print(f"median send time: {np.median(send_times)}")
         self.stop()
 
     def stop(self):
         if not self.running:
             return
+        self.executor.shutdown(wait=True)
         self.server_socket.close()
-        # optionally stop CSI processes
         if self.check_tx_running():
             self.tx_socket.send(b"stop")
         if self.check_rx_running():
@@ -189,8 +186,6 @@ class DatasetCollector:
 
 
 if __name__ == "__main__":
-    import argparse
-
     p = argparse.ArgumentParser()
     p.add_argument("-f", "--frequency", type=int, default=5180)
     p.add_argument("--inject-delay", type=int, default=10000)
