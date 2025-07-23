@@ -8,6 +8,7 @@ import asyncio
 TRAIN_FMT = "!III"
 TRAIN_SIZE = struct.calcsize(TRAIN_FMT)
 
+
 class TrainableModule(torch.nn.Module, ABC):
     @abstractmethod
     def train_step(
@@ -31,20 +32,18 @@ class TrainingServerBase(ABC):
         port: int,
         model: TrainableModule,
         batch_size: int = 8,
-        max_queue_size: int = 0,  # 0 means unbounded
+        max_queue_size: Optional[int] = None,
     ):
         self.host = host
         self.port = port
         self.model = model
         self.batch_size = batch_size
         self.device = next(model.parameters()).device
-        # set maxsize if > 0
         self.queue: asyncio.Queue[tuple[torch.Tensor, torch.Tensor]] = (
             asyncio.Queue(maxsize=max_queue_size)
-            if max_queue_size > 0
+            if max_queue_size
             else asyncio.Queue()
         )
-        print(self.device)
 
     def train_received(self, inp, latent):
         pass

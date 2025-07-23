@@ -40,7 +40,6 @@ class TRTModel:
         )
 
     def infer(self, imgs: np.ndarray) -> np.ndarray:
-        # imgs: numpy array of shape (N, C, H, W) matching engine's expected layout
         if imgs.dtype != self.in_dtype:
             raise ValueError(
                 f"Input array must be {self.in_dtype}, got {imgs.dtype}"
