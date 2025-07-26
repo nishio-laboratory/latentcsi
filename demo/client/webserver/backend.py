@@ -3,17 +3,15 @@ from contextlib import asynccontextmanager
 import struct
 import base64
 from io import BytesIO
-from typing import Annotated, Optional
-
-import numpy as np
-import torch
-from diffusers.models.autoencoders import AutoencoderTiny
-from PIL import Image
-from torchvision.transforms.functional import to_pil_image
 from fastapi import FastAPI, WebSocket, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, PositiveFloat, confloat, BaseModel
+from pydantic import BaseModel, PositiveFloat, confloat
+from typing import Optional, Annotated
+from diffusers import AutoencoderTiny
+import torch
+import numpy as np
+from torchvision.transforms.functional import to_pil_image
 
 SERVER_HOST, SERVER_PORT = "192.168.1.221", 9999
 LATENT_SHAPE = (1, 4, 64, 64)
@@ -39,9 +37,6 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
-app.mount(
-    "/static", StaticFiles(directory="demo/client/webserver/static"), name="static"
-)
 clients: set[WebSocket] = set()
 
 class SliderInput(BaseModel):
@@ -60,7 +55,7 @@ async def read_latent(reader: asyncio.StreamReader) -> torch.Tensor:
     return tensor
 
 
-def encode_img(img: Image.Image) -> str:
+def encode_img(img) -> str:
     buf = BytesIO()
     img.save(buf, format="JPEG")
     return base64.b64encode(buf.getvalue()).decode()
@@ -127,7 +122,6 @@ async def update_lr(input: LRInput):
         return {"status": "lr sent"}
     return {"status": "not running"}
 
-@app.get("/", response_class=HTMLResponse)
-async def get_index():
-    with open("demo/client/webserver/static/index.html") as f:
-        return f.read()
+app.mount(
+    "/", StaticFiles(directory="demo/client/webserver/frontend/dist"), name="static"
+)
