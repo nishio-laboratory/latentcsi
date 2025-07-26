@@ -117,7 +117,8 @@ class TrainingServer(TrainingServerBase):
                 self.model.eval()
                 with torch.no_grad():
                     out = self.model(self.last.to(self.device))
-                return out.cpu().numpy().tobytes()
+                out = out.cpu().numpy().tobytes()
+                return struct.pack("!I", len(out)) + out
         if header == b"chglr":
             lr = struct.unpack("!f", await reader.readexactly(4))[0]
             self.model.update_lr(lr)

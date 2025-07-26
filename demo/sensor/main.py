@@ -10,6 +10,7 @@ from typing import Literal, Tuple
 import threading
 import queue
 from collections import deque
+import io
 
 import numpy as np
 import pyrealsense2 as rs
@@ -44,6 +45,7 @@ class DatasetCollector:
         tx_ip: str = "192.168.2.5",
         server_ip: str = "192.168.1.221",
         start_rx_process: bool = False,
+        serve_port: int = 9000
     ):
         self.rx_cmd_string = f"feitcsi -f {frequency} -w 160 -r {format}"
         self.tx_cmd_string = (
@@ -54,9 +56,14 @@ class DatasetCollector:
         self.server_ip = server_ip
         self.samp_count = samp_count
         self.start_rx_process = start_rx_process
+        self.serve_port = serve_port
         self.edge_addr = ("10.0.0.1", 8000)
         self.executor = ThreadPoolExecutor(max_workers=1)
         self.send_queue: queue.Queue[Tuple[bytes, bytes, int]] = queue.Queue()
+        self.latest_lock = threading.Lock()
+        self.latest_photo: np.ndarray | None = None
+        self.latest_csi: np.ndarray | None = None
+        self.server_listen_addr = ("0.0.0.0", 10000)
 
     def _encode(self, images: np.ndarray, req_id: int) -> np.ndarray:
         sock = make_socket(self.edge_addr, tcp=True)
@@ -81,6 +88,46 @@ class DatasetCollector:
             )
             self.server_socket.sendmsg([hdr, csis_bytes, lat_bytes])
             self.send_queue.task_done()
+
+    def _recv_all(self, conn: socket.socket, n: int) -> bytes:
+        data = b""
+        while len(data) < n:
+            chunk = conn.recv(n - len(data))
+            if not chunk:
+                break
+            data += chunk
+        return data
+
+    def _server(self) -> None:
+        serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        serv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        serv.bind(self.server_listen_addr)
+        serv.listen()
+        serv.settimeout(1.0)
+        while getattr(self, "running", False):
+            try:
+                conn, _ = serv.accept()
+            except socket.timeout:
+                continue
+            with conn:
+                hdr = self._recv_all(conn, 3)
+                if hdr not in (b"jpg", b"raw"):
+                    continue
+                with self.latest_lock:
+                    photo = self.latest_photo
+                    csi = self.latest_csi
+                if photo is None or csi is None:
+                    continue
+                if hdr == b"jpg":
+                    img = photo.transpose(1, 2, 0)
+                    buf = io.BytesIO()
+                    Image.fromarray(img).save(buf, format="JPEG")
+                    img_bytes = buf.getvalue()
+                else:
+                    img_bytes = photo.tobytes()
+                csi_bytes = csi.tobytes()
+                lengths = struct.pack("!II", len(img_bytes), len(csi_bytes))
+                conn.sendall(lengths + img_bytes + csi_bytes)
 
     def init_camera(self) -> None:
         self.pipe = rs.pipeline()
@@ -122,6 +169,7 @@ class DatasetCollector:
         self.tx_socket = make_socket((self.tx_ip, 8008))
         self.server_socket = make_socket((self.server_ip, 9999), tcp=True)
         threading.Thread(target=self._sender, daemon=True).start()
+        threading.Thread(target=self._server, daemon=True).start()
 
         if self.start_rx_process:
             self.rx_process = subprocess.Popen(
@@ -166,11 +214,17 @@ class DatasetCollector:
         start_time = time.time()
         try:
             for idx in range(self.samp_count):
-                photo_buf.add(self.get_photo())
-                csi_window.append(self.get_csi())
+                photo = self.get_photo()
+                csi = self.get_csi()
+                with self.latest_lock:
+                    self.latest_photo = photo
+                    self.latest_csi = csi
+                photo_buf.add(photo)
+                csi_window.append(csi)
                 if len(csi_window) == win_size:
-                    csi_buf.add(np.mean(np.stack(csi_window), axis=0))
-
+                    csi_buf.add(
+                        np.mean(np.stack(csi_window), axis=0)
+                    )
                 if photo_buf.full() and len(csi_window) == win_size:
                     imgs = photo_buf.buffer.copy()
                     csis = csi_buf.buffer.copy().tobytes()
@@ -196,22 +250,19 @@ class DatasetCollector:
     def stop(self) -> None:
         if not getattr(self, "running", False):
             return
-
+        self.running = False
         self.server_socket.close()
         self.pipe.stop()
-
         try:
             self.tx_socket.send(b"stop")
         except Exception:
             pass
-
         try:
             self.rx_socket.send(b"stop")
             if self.start_rx_process:
                 self.rx_process.terminate()
         except Exception:
             pass
-        self.running = False
 
 
 if __name__ == "__main__":
@@ -223,6 +274,7 @@ if __name__ == "__main__":
     parser.add_argument("--start-rx-process", action="store_true")
     parser.add_argument("-tx", "--tx-ip", type=str, default="192.168.2.5")
     parser.add_argument("--server-ip", type=str, default="192.168.1.221")
+    parser.add_argument("--port", type=str, default="8000")
     args = parser.parse_args()
 
     dc = DatasetCollector(
@@ -233,5 +285,6 @@ if __name__ == "__main__":
         tx_ip=args.tx_ip,
         server_ip=args.server_ip,
         start_rx_process=args.start_rx_process,
+        serve_port=args.port
     )
     dc.start()
