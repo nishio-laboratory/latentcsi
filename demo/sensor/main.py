@@ -109,25 +109,41 @@ class DatasetCollector:
                 conn, _ = serv.accept()
             except socket.timeout:
                 continue
-            with conn:
-                hdr = self._recv_all(conn, 3)
-                if hdr not in (b"jpg", b"raw"):
+            threading.Thread(target=self._handle_client,
+                             args=(conn,), daemon=True).start()
+
+    def _handle_client(self, conn: socket.socket) -> None:
+        conn.settimeout(1.0)
+        with conn:
+            while getattr(self, "running", False):
+                try:
+                    hdr = self._recv_all(conn, 3)
+                except socket.timeout:
                     continue
+                if not hdr or hdr not in (b"jpg", b"raw", b"csi"):
+                    break
                 with self.latest_lock:
                     photo = self.latest_photo
                     csi = self.latest_csi
                 if photo is None or csi is None:
                     continue
+                csi_bytes = csi.tobytes()
                 if hdr == b"jpg":
                     img = photo.transpose(1, 2, 0)
                     buf = io.BytesIO()
                     Image.fromarray(img).save(buf, format="JPEG")
                     img_bytes = buf.getvalue()
-                else:
+                    lengths = struct.pack("!II", len(img_bytes),
+                                          len(csi_bytes))
+                    conn.sendall(lengths + img_bytes + csi_bytes)
+                elif hdr == b"raw":
                     img_bytes = photo.tobytes()
-                csi_bytes = csi.tobytes()
-                lengths = struct.pack("!II", len(img_bytes), len(csi_bytes))
-                conn.sendall(lengths + img_bytes + csi_bytes)
+                    lengths = struct.pack("!II", len(img_bytes),
+                                          len(csi_bytes))
+                    conn.sendall(lengths + img_bytes + csi_bytes)
+                else:
+                    lengths = struct.pack("!I", len(csi_bytes))
+                    conn.sendall(lengths + csi_bytes)
 
     def init_camera(self) -> None:
         self.pipe = rs.pipeline()

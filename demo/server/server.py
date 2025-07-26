@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from src.encoder.model import CNNDecoder
 from demo.server.server_base import TrainableModule, TrainingServerBase
 from typing import ByteString, Optional
+import numpy as np
 
 
 class CNNDecoderTrainable(CNNDecoder, TrainableModule):
@@ -112,6 +113,17 @@ class TrainingServer(TrainingServerBase):
     async def dispatch(
         self, header: ByteString, reader: asyncio.StreamReader
     ) -> Optional[ByteString]:
+        if header == b"infer":
+            l_c = struct.unpack("!I", await reader.readexactly(4))[0]
+            csi = np.frombuffer(await reader.readexactly(l_c), dtype=np.float32)
+            csi = csi.reshape((1, 1992))
+            csi = torch.Tensor(csi).to(self.device)
+            self.model.eval()
+            with torch.no_grad():
+                out = self.model(csi)
+            out = out.cpu().numpy().tobytes()
+            return struct.pack("!I", len(out)) + out
+
         if header == b"ilast":
             if self.last is not None:
                 self.model.eval()
