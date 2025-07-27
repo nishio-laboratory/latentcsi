@@ -8,7 +8,7 @@ SENSOR_HOST, SENSOR_PORT = "192.168.2.4", 10000
 router = APIRouter(prefix="/control")
 
 @router.post("/start")
-async def start(st: State = Depends(get_state)):
+async def start(st: ServerState = Depends(get_state)):
     if st.running:
         return {"status": "already running"}
 
@@ -26,7 +26,7 @@ async def start(st: State = Depends(get_state)):
     return {"status": "started"}
 
 @router.post("/stop")
-async def stop(st: State = Depends(get_state)):
+async def stop(st: ServerState = Depends(get_state)):
     if not st.running:
         return {"status": "not running"}
     st.running = False
@@ -37,12 +37,12 @@ async def stop(st: State = Depends(get_state)):
     return {"status": "stopped"}
 
 @router.post("/slider")
-async def update_slider(input: SliderInput, st: State = Depends(get_state)):
+async def update_slider(input: SliderInput, st: ServerState = Depends(get_state)):
     st.interval = input.value
     return {"status": "interval updated"}
 
 @router.post("/lr")
-async def update_lr(input: LRInput, st: State = Depends(get_state)):
+async def update_lr(input: LRInput, st: ServerState = Depends(get_state)):
     c = st.server_conn
     if st.running and c:
         c.writer.write(b"chglr" + struct.pack("!f", input.value))

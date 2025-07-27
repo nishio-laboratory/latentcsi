@@ -11,7 +11,7 @@ from demo.client.webserver.control import router as ctrl_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.state = State()
+    app.state.state = ServerState()
     yield
 
 app = FastAPI(lifespan=lifespan)

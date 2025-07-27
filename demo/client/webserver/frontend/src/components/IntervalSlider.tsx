@@ -5,9 +5,12 @@ interface IntervalSliderProps {
   handleSliderChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
-function IntervalSlider({ intervalValue, handleSliderChange }: IntervalSliderProps) {
+function IntervalSlider({
+  intervalValue,
+  handleSliderChange,
+}: IntervalSliderProps) {
   return (
-    <div className="w-full max-w-md mt-8">
+    <div className="w-full max-w-md mt-5">
       <input
         type="range"
         id="slider"
@@ -18,7 +21,7 @@ function IntervalSlider({ intervalValue, handleSliderChange }: IntervalSliderPro
         onInput={handleSliderChange}
         className="w-full"
       />
-      <div className="text-center mt-2">
+      <div className="text-center mt-1">
         Update Interval: {intervalValue.toFixed(2)}s
       </div>
     </div>

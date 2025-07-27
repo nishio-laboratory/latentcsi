@@ -23,12 +23,12 @@ def latent_to_tensor(latent_bytes, use_sd_post):
         arr *= 0.18215
     return torch.tensor(arr).reshape((1, 4, 64, 64)).to("cuda")
 
-# async def ilast(server_conn: Connection, use_sd_post: bool) -> torch.Tensor:
-#     reader, writer = server_conn.reader, server_conn.writer
-#     writer.write(b"ilast")
-#     l_i = struct.unpack("!I", await reader.readexactly(4))[0]
-#     data = await reader.readexactly(l_i)
-#     return latent_to_tensor(data, use_sd_post)
+async def ilast(server_conn: Connection, use_sd_post: bool) -> torch.Tensor:
+    reader, writer = server_conn.reader, server_conn.writer
+    writer.write(b"ilast")
+    l_i = struct.unpack("!I", await reader.readexactly(4))[0]
+    data = await reader.readexactly(l_i)
+    return latent_to_tensor(data, use_sd_post)
 
 async def infer(server_conn: Connection, csi: np.ndarray, use_sd_post: bool) -> torch.Tensor:
     reader, writer = server_conn.reader, server_conn.writer
@@ -59,7 +59,7 @@ def encode_img(img) -> str:
 
 @router.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    st: State = ws.app.state.state
+    st: ServerState = ws.app.state.state
     await ws.accept()
     clients.add(ws)
     try:
@@ -70,7 +70,7 @@ async def websocket_endpoint(ws: WebSocket):
                 pred = await infer(st.server_conn, csi, st.use_sd_post)
 
                 with torch.no_grad():
-                    img_tensor = st.model.decode(pred).sample.squeeze().cpu()
+                    img_tensor = st.vae.decode(pred).sample.squeeze().cpu()
                 if st.use_sd_post:
                     img_tensor = (img_tensor + 1) / 2
                 pil_img = to_pil_image(img_tensor.clip(0, 1))

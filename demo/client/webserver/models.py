@@ -1,3 +1,4 @@
+from diffusers.utils.dummy_torch_and_transformers_objects import StableDiffusionImg2ImgPipeline
 from fastapi import Request
 from pydantic import BaseModel, PositiveFloat, confloat
 from asyncio import StreamReader, StreamWriter, Event
@@ -14,15 +15,17 @@ class Connection:
         await self.writer.wait_closed()
 
 
-class State:
+class ServerState:
     def __init__(self):
         self.server_conn: Optional[Connection] = None
         self.sensor_conn: Optional[Connection] = None
-        self.model = AutoencoderTiny.from_pretrained("madebyollin/taesd").to("cuda")
+        self.vae = AutoencoderTiny.from_pretrained("madebyollin/taesd").to("cuda")
+        self.sd = StableDiffusionImg2ImgPipeline.from_pretrained("stable-diffusion-v1-5/stable-diffusion-v1-5")
         self.interval: float = 0.33
         self.use_sd_post: bool = False
         self.running: bool = False
         self.start_event = Event()
+
 
 
 class SliderInput(BaseModel):
@@ -32,5 +35,5 @@ class LRInput(BaseModel):
     value: PositiveFloat
 
 
-def get_state(request: Request) -> State:
+def get_state(request: Request) -> ServerState:
     return request.app.state.state

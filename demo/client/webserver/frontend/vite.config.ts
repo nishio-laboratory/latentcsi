@@ -7,9 +7,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {
-      '/control': 'http://localhost:8123',
+      '/control': 'http://0.0.0.0:8123',
       '/ws': {
-        target: 'ws://localhost:8123',
+        target: 'ws://0.0.0.0:8123',
         ws: true
       }
     }
