@@ -8,13 +8,13 @@ function ImageDisplay({ imageSrc, altText, size = 128 }: ImageDisplayProps) {
   const px = `${size}px`;
   return (
     <div
-      className="rounded-lg border text-center mx-1 mt-5"
+      className="rounded-lg text-center mx-1 mt-5"
       style={{ width: px, height: px }}
     >
+      <p>{altText}</p>
       <img
         src={imageSrc}
-        alt={altText}
-        className="rounded-lg"
+        className="rounded-lg border"
         style={{ width: px, height: px, objectFit: "contain", lineHeight: px }}
       />
     </div>

@@ -3,6 +3,7 @@ import ImageDisplay from "./components/ImageDisplay";
 import IntervalSlider from "./components/IntervalSlider";
 import LearningRateControl from "./components/LearningRateControl";
 import ControlButtons from "./components/ControlButtons";
+import { SDSettings } from "./components/SDSettings";
 
 function App() {
   const [predImageSrc, setPredImageSrc] = useState<string>("");
@@ -75,6 +76,7 @@ function App() {
         handleLrChange={handleLrChange}
         handleLrSubmit={handleLrSubmit}
       />
+      <SDSettings/>
     </div>
   );
 }

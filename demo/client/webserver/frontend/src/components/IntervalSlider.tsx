@@ -21,7 +21,7 @@ function IntervalSlider({
         onInput={handleSliderChange}
         className="w-full"
       />
-      <div className="text-center mt-1">
+      <div className="text-center">
         Update Interval: {intervalValue.toFixed(2)}s
       </div>
     </div>

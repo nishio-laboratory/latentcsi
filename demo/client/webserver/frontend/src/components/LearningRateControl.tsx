@@ -12,7 +12,7 @@ function LearningRateControl({
   handleLrSubmit,
 }: LearningRateControlProps) {
   return (
-    <div className="flex items-center mt-4">
+    <div className="flex items-center mt-5">
       <input
         type="number"
         placeholder="Learning Rate"
