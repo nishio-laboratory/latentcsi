@@ -6,14 +6,17 @@ host = "tsubame"
 [sync.code]
 from = "~/prog/csi_to_image/"
 to = "~/alt/"
-excludes = [".*", "__*", "lightning_logs", "env"]
+excludes = [".*", "__*", "lightning_logs", "env", "frontend"]
 
 [exec]
-basechannels = 16
-name = "mmfi_two_gan_$basechannels"
+basechannels = 128
+hybridk = 16
+n = 5
+dataset = "mmfi_hands_two"
+name = "final_gan_$dataset-$basechannels-$hybridk-$n"
 cmd = [
 "cd ~/alt/csi_to_image",
-"python -m src.encoder.gan -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/mmfi_hands_two -n $name --epochs 1000 -b 16 --base-channels $basechannels"
+"python -m src.encoder.gan -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/$dataset -n $name --epochs 1000 -b 32 --base-channels $basechannels --hybrid-k $hybridk"
 ]
 max_runtime = "10:00:00"
 group = "tga-nlab"

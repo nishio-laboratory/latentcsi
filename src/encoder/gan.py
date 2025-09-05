@@ -1,14 +1,11 @@
-from typing import cast, Union, List
+from typing import List, Optional
 import time
 from src.encoder.base import TrainingTimerCallback
 from src.encoder.data_utils import CSIDataset
-from src.encoder.model import CNNDecoder
 from src.inference.utils import permute_color_chan
 import torch
-from torch import nn, permute
-import torch.nn.functional as F
+from torch import nn, relu, tanh
 from torch.utils.data import DataLoader
-from torchvision import ops
 from pathlib import Path
 import lightning as L
 from lightning.pytorch.loggers import CSVLogger
@@ -17,7 +14,7 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
 
 class Generator(nn.Module):
-    def __init__(self, input_dim, initial_channels):
+    def __init__(self, input_dim: int, initial_channels: int):
         super(Generator, self).__init__()
         self.initial_channels = initial_channels
         self.initial_size = 64
@@ -43,7 +40,7 @@ class Generator(nn.Module):
             nn.Tanh(),
         )
 
-    def _upsampling_block(self, in_ch, out_ch):
+    def _upsampling_block(self, in_ch: int, out_ch: int) -> nn.Sequential:
         return nn.Sequential(
             nn.ConvTranspose2d(
                 in_ch, out_ch, kernel_size=4, stride=2, padding=1
@@ -53,8 +50,8 @@ class Generator(nn.Module):
             nn.ReLU(),
         )
 
-    def forward(self, z):
-        x = self.fc(z)
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        x = relu(self.fc(z))
         x = x.view(
             -1, self.initial_channels, self.initial_size, self.initial_size
         )
@@ -68,101 +65,121 @@ class Discriminator(nn.Module):
         super(Discriminator, self).__init__()
         self.downsample_blocks = nn.ModuleList(
             [
-                self._downsampling_block(3, 32),
-                self._downsampling_block(32, 64),
+                self._downsampling_block(3, 64),
                 self._downsampling_block(64, 128),
+                self._downsampling_block(128, 256),
             ]
         )
-        self.fc1 = nn.Linear(128 * 64 * 64, 1)
+        self.fc1 = nn.Linear(256 * 8 * 8, 1)
 
-    def _downsampling_block(self, in_channels, out_channels):
+    def _downsampling_block(
+        self, in_channels: int, out_channels: int
+    ) -> nn.Sequential:
         return nn.Sequential(
             nn.Conv2d(
-                in_channels, out_channels, kernel_size=4, stride=2, padding=1
+                in_channels, out_channels, kernel_size=4, stride=4, padding=0
             ),
             nn.LeakyReLU(0.2),
+            nn.Dropout2d(p=0.25),
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         for block in self.downsample_blocks:
             x = block(x)
         x = x.view(x.size(0), -1)
-        x = self.fc1(x)
-        return torch.sigmoid(x)
+        return self.fc1(x)
 
 
 class GAN(L.LightningModule):
-    def __init__(self, input_dim, initial_size):
+    def __init__(
+        self,
+        input_dim: int,
+        initial_channels: int,
+        hybrid_k: Optional[int] = None,
+        name: str = "",
+    ):
         super(GAN, self).__init__()
-        self.generator = Generator(input_dim, initial_size)
+        self.generator = Generator(input_dim, initial_channels)
         self.discriminator = Discriminator()
         self.automatic_optimization = False
+        self.hybrid_k = hybrid_k
+        self.name = name
+        self.save_hyperparameters()
 
-    def forward(self, z):
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
         return self.generator(z)
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch: list, batch_idx: int) -> None:
+        # get optimizers
         opt_g, opt_d = self.optimizers()
-        print([(i.shape, i.dtype) for i in batch])
+        loss_fn = nn.BCEWithLogitsLoss()
+
         z, _, real_images = batch
         real_images = permute_color_chan(real_images).to(
             next(self.generator.parameters()).dtype
         )
+        real_images = (real_images / 127.5) - 1  # 0, 255 -> -1, 1
+
         opt_d.zero_grad()
-        fake_images = self(z).detach()
+        opt_g.zero_grad()
+
+        fake_images = self(z)
+
         real_logits = self.discriminator(real_images)
-        fake_logits = self.discriminator(fake_images)
-
+        fake_logits = self.discriminator(fake_images.detach())
+        real_labels = torch.ones_like(real_logits)
+        fake_labels = torch.zeros_like(fake_logits)
         loss_d = (
-            -(
-                torch.mean(torch.log(real_logits + 1e-8))
-                + torch.mean(torch.log(1 - fake_logits + 1e-8))
-            )
-            / 2
-        )
+            loss_fn(real_logits, real_labels)
+            + loss_fn(fake_logits, fake_labels)
+        ) / 2
 
-        # backprop & step D
+        # backward and step D
         self.manual_backward(loss_d)
         opt_d.step()
+        opt_d.zero_grad()
 
-        # ——— Train Generator ———
-        opt_g.zero_grad()
-        fake_images = self(z)  # fresh fakes
-        fake_logits = self.discriminator(fake_images)
-        loss_g = -torch.mean(torch.log(fake_logits + 1e-8))
+        if self.hybrid_k and batch_idx % self.hybrid_k == 0:
+            fake_logits = self.discriminator(fake_images)
+            loss_g = loss_fn(fake_logits, real_labels)
+        else:
+            loss_g = torch.nn.functional.mse_loss(fake_images, real_images)
 
-        # backprop & step G
         self.manual_backward(loss_g)
         opt_g.step()
 
-        # log once per step
-        self.log("loss/discriminator", loss_d, prog_bar=True)
         self.log("loss/generator", loss_g, prog_bar=True)
+        self.log("loss/discriminator", loss_d, prog_bar=True)
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch: list, batch_idx: int) -> torch.Tensor:
         inputs, _, targets = batch
-        targets = permute_color_chan(targets)
+        targets = permute_color_chan(targets).to(
+            next(self.generator.parameters()).dtype
+        )
         outputs = self(inputs)
-        loss = torch.nn.functional.mse_loss(outputs, targets)
+        outputs = (outputs + 1) * 127.5
+        loss = torch.nn.functional.mse_loss(outputs, targets.to(outputs.dtype))
         self.log(
             "val_loss", loss, sync_dist=True, prog_bar=True, on_epoch=True
         )
+
         return loss
 
     def configure_optimizers(self):
-        optimizer_g = torch.optim.Adam(
+        opt_g = torch.optim.Adam(
             self.generator.parameters(), lr=0.0002, betas=(0.5, 0.999)
         )
-        optimizer_d = torch.optim.Adam(
+        opt_d = torch.optim.Adam(
             self.discriminator.parameters(), lr=0.0002, betas=(0.5, 0.999)
         )
-        return [optimizer_g, optimizer_d], []
+        # return list only for unpacking
+        return [opt_g, opt_d]
 
-    def ckpt_name(self):
-        return "gan_pixel_{val_loss}"
+    def ckpt_name(self) -> str:
+        return f"{self.name}_pixel_{{val_loss}}"
 
 
-def main():
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--path", required=True)
     parser.add_argument("-n", "--name", type=str, default="")
@@ -170,6 +187,7 @@ def main():
     parser.add_argument("-b", "--batch-size", default=16, type=int)
     parser.add_argument("--lr", default=5e-4, type=float)
     parser.add_argument("--base-channels", default=1024, type=int)
+    parser.add_argument("--hybrid-k", default=None, type=int)
     args = parser.parse_args()
 
     torch.set_float32_matmul_precision("medium")
@@ -182,30 +200,24 @@ def main():
         lambda ds: DataLoader(ds, batch_size=args.batch_size, num_workers=15),
         (train, val, test),
     )
-    print("Loaded data")
-    data_dim = next(iter(test))[0].size(1)
-    model = GAN(data_dim, 16)
-    trainer_config = {
-        "devices": [0],
-        "max_epochs": args.epochs,
-        "logger": CSVLogger(
-            save_dir=data_path, name="logs", version=args.name
-        ),
-        "callbacks": [
+    model = GAN(
+        next(iter(test))[0].size(1),
+        args.base_channels,
+        args.hybrid_k,
+        name=args.name,
+    )
+    trainer = L.Trainer(
+        devices=[0],
+        max_epochs=args.epochs,
+        accelerator="gpu",
+        logger=CSVLogger(save_dir=data_path, name="logs", version=args.name),
+        callbacks=[
             EarlyStopping("val_loss", patience=5),
             ModelCheckpoint(
-                dirpath=data_path / "ckpts",
-                filename=model.ckpt_name(),
+                dirpath=data_path / "ckpts", filename=model.ckpt_name()
             ),
             TrainingTimerCallback(),
         ],
-    }
-    if "devices" not in trainer_config or len(trainer_config["devices"]) > 1:
-        trainer_config["strategy"] = "ddp_find_unused_parameters_true"
-    trainer = L.Trainer(**trainer_config)
+    )
     trainer.fit(model, train, val)
-    trainer.test(dataloaders=test, ckpt_path="best")
-
-
-if __name__ == "__main__":
-    main()
+    #trainer.test(dataloaders=test, ckpt_path="best")

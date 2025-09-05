@@ -1,4 +1,4 @@
-from torch import permute
+from torch import device, permute
 import pickle
 from typing import List
 from itertools import islice
@@ -70,6 +70,7 @@ if __name__ == "__main__":
     parser.add_argument("--out", type=Path, required=False)
     parser.add_argument("--crop", action="store_true")
     parser.add_argument("--save", action="store_true")
+    parser.add_argument("--use-images", action="store_true")
     args = parser.parse_args()
     args.ckpt = os.path.basename(args.ckpt)
 
@@ -85,17 +86,24 @@ if __name__ == "__main__":
 
     testset_path = args.path / f"testset_inference_{args.ckpt}"
 
-    p: List[PILImage] = [
-        Image.open(i)
-        for i in tqdm(
-            sorted(glob.glob(str(testset_path / "*_l.png"))),
-            desc="loading preds",
-        )
-    ]
+    if not args.use_images:
+        p: List[PILImage] = [
+            Image.fromarray(i.numpy())
+            for i in tqdm(torch.load(testset_path / "all_preds.pt", map_location="cpu"))
+        ]
+    else:
+        p: List[PILImage] = [
+            Image.open(i)
+            for i in tqdm(
+                    sorted(glob.glob(str(testset_path / "*_l.png"))),
+                    desc="loading preds",
+            )
+        ]
+
     reals_filepaths = sorted(glob.glob(str(testset_path / "*_p.png")))
     if len(reals_filepaths) == 0:
         reals_filepaths = sorted(
-            glob.glob(str(testset_path.parents[0] / "reference/*"))
+            glob.glob(str(testset_path.parents[0] / "reference/*.png"))
         )
     y: List[PILImage] = [
         Image.open(i)

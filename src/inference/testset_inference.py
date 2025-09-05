@@ -1,8 +1,9 @@
+from itertools import islice
 import os
 from pathlib import Path
 import argparse
 import torch
-from typing import cast
+from typing import Literal, cast
 from PIL import Image
 from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion_img2img import (
     StableDiffusionImg2ImgPipeline,
@@ -11,8 +12,8 @@ from src.encoder.baseline import (
     CSIAutoencoderMLP_CNN as baseline_CSIAutoencoder,
 )
 import numpy as np
-from src.encoder import training_cnn_att
-from src.inference.utils import vae_decode
+from src.encoder import gan, training_cnn_att
+from src.inference.utils import permute_color_chan, vae_decode
 from src.inference.utils import load_test_dataset
 from tqdm import tqdm
 
@@ -23,22 +24,25 @@ def main(
     device: int,
     save_latent: bool,
     save_real: bool,
-    baseline: bool = False,
+    model_type: Literal["latent", "base", "gan"],
 ):
     if not ckpt.endswith(".ckpt"):
         ckpt += ".ckpt"
 
-    if baseline:
+    if model_type == "base":
         model = baseline_CSIAutoencoder
-    else:
+    elif model_type == "latent":
         model = training_cnn_att.CSIAutoencoderMLP_CNN
+    else:
+        model = gan.GAN
     model = model.load_from_checkpoint(path / "ckpts" / ckpt)
+    print("loaded model")
 
     model.eval()
     model = model.to(device)
     torch.set_grad_enabled(False)
 
-    if save_latent and not baseline:
+    if save_latent and model_type == "latent":
         sd = cast(
             StableDiffusionImg2ImgPipeline,
             StableDiffusionImg2ImgPipeline.from_pretrained(
@@ -61,7 +65,7 @@ def main(
     else:
         photos = None
 
-    if baseline:
+    if model_type == "base" or model_type == "gan":
         test, test_indices = load_test_dataset(path, ["photos"])
     else:
         test, test_indices = load_test_dataset(path)
@@ -69,8 +73,8 @@ def main(
     inf_path = path / f"testset_inference_{os.path.basename(ckpt)}"
     inf_path.mkdir(exist_ok=True)
 
-    if baseline:
-        test_preds = torch.zeros(len(test), 512, 512, 3).to(device)
+    if model_type == "base" or model_type == "gan":
+        test_preds = torch.zeros(len(test), 512, 512, 3, dtype=torch.uint8).to(device)
     else:
         test_preds = torch.zeros(len(test), 4, 64, 64).to(device)
 
@@ -78,7 +82,7 @@ def main(
     for n, (i, data) in tqdm(
         enumerate(zip(test_indices, iter(test))), total=len(test_indices)
     ):
-        if baseline:
+        if model_type == "base" or model_type == "gan":
             x, _, y = data
         else:
             x, y = data
@@ -87,12 +91,17 @@ def main(
         y = y.to(device).unsqueeze(0)
         with torch.no_grad():
             p = model(x).to(device)
-        if len(p.shape) == 2:
-            p = p.unsqueeze(0)
-        test_preds[n] = p.squeeze()
+
+        if p.shape[1] == 3:
+            p = permute_color_chan(p)
+
+        if model_type == "gan":
+            p = (p + 1) * 127.5
+
+        test_preds[n] = p.squeeze().type(torch.uint8)
         total_loss += torch.nn.functional.mse_loss(p, y)
 
-        if baseline:
+        if model_type == "base" or model_type == "gan":
             if save_latent:
                 Image.fromarray(
                     np.asarray(p.squeeze().cpu(), dtype=np.uint8)
@@ -117,7 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", default=0, type=int)
     parser.add_argument("--save-latent", default=False, action="store_true")
     parser.add_argument("--save-real", default=False, action="store_true")
-    parser.add_argument("--baseline", default=False, action="store_true")
+    parser.add_argument("--model-type", default="lc")
     args = parser.parse_args()
     main(**vars(args))
 

@@ -21,6 +21,7 @@ class CSIDataset(Dataset):
         path: Path,
         aux_data: List[AuxDataTypes] = [],
     ):
+        self.aux_data = aux_data
         filename_mapping = {
             "latent_dists": (path / "targets" / "targets_dists.pt"),
             "seg_lastlayer": (path / "targets" / "targets_seg.pt"),
@@ -65,6 +66,9 @@ class CSIDataset(Dataset):
 
     def __getitem__(self, index):
         out = [self.csi[index], self.targets[index]]
-        for i in self.aux:
-            out.append(i[index])
+        for n, i in enumerate(self.aux):
+            if self.aux_data[n] == "photos":
+                out.append(i[index].float())
+            else:
+                out.append(i[index])
         return tuple(out)

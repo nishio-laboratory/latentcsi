@@ -64,13 +64,10 @@ class CrossAttentionBlock(nn.Module):
         cond: (B, cond_dim) 1D conditioning vector
         """
         b, c, h, w = x.shape
-        # Reshape spatial feature map to (B, L, C) where L = H*W.
         x_reshaped = x.permute(0, 2, 3, 1).contiguous().view(b, h * w, c)
 
-        # Project spatial features to queries.
         q = self.to_q(x_reshaped)  # (B, L, hidden_dim)
 
-        # Process the conditioning vector as a single token.
         cond_token = cond.unsqueeze(1)  # (B, 1, cond_dim)
         k = self.to_k(cond_token)  # (B, 1, hidden_dim)
         v = self.to_v(cond_token)  # (B, 1, hidden_dim)
@@ -80,17 +77,12 @@ class CrossAttentionBlock(nn.Module):
         k = k.transpose(0, 1)  # (1, B, hidden_dim)
         v = v.transpose(0, 1)  # (1, B, hidden_dim)
 
-        # Compute attention (we ignore the attention weights).
         attn_output, _ = self.mha(q, k, v)
 
-        # Bring output back to (B, L, hidden_dim)
         attn_output = attn_output.transpose(0, 1)
-        # Final linear projection.
         attn_output = self.out_proj(attn_output)
-        # Residual connection.
         x_reshaped = x_reshaped + attn_output
 
-        # Reshape back to (B, C, H, W)
         x_out = x_reshaped.view(b, h, w, c).permute(0, 3, 1, 2).contiguous()
         return x_out
 
@@ -119,13 +111,6 @@ class UpsampleBlock(nn.Module):
 
 
 class CNNDecoder(nn.Module):
-    """
-    A latent-space generator that:
-      1) Projects a 1D input vector of size `input_dim` into a 2D tensor of shape (base_channels, 8, 8),
-      2) Applies 3 upsample blocks (8x8 -> 16x16 -> 32x32 -> 64x64). Only the last two blocks use cross-attention.
-      3) Uses a final convolution to produce a 4-channel output.
-    """
-
     def __init__(
         self,
         input_dim=342,

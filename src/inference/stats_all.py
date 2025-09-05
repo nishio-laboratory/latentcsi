@@ -45,7 +45,22 @@ if __name__ == "__main__":
         )
     )
 
+
+    d2_gan_ckpts = list(
+        map(
+            os.path.basename,
+            glob(str(mmfi_path / "ckpts" / "final_gan_mmfi_hands_two-64-16-*")),
+        )
+    )
+    d1_gan_ckpts = list(
+        map(
+            os.path.basename,
+            glob(str(walking_path / "ckpts" / "final_gan_walking-64-16-*")),
+        )
+    )
+
     print(d1_final_ckpts, d1_baseline_ckpts, d2_final_ckpts, d2_baseline_ckpts)
+    print(d1_gan_ckpts, d2_gan_ckpts)
 
     # for ckpt in d1_final_ckpts:
     #     run_inference(
@@ -73,15 +88,15 @@ if __name__ == "__main__":
     #         save_latent=True,
     #         save_real=False,
     #     )
-    for ckpt in d2_baseline_ckpts:
-        run_inference(
-            path=mmfi_path,
-            ckpt=ckpt,
-            device=0,
-            save_latent=True,
-            save_real=False,
-            baseline=True,
-        )
+    # for ckpt in d2_baseline_ckpts:
+    #     run_inference(
+    #         path=mmfi_path,
+    #         ckpt=ckpt,
+    #         device=0,
+    #         save_latent=True,
+    #         save_real=False,
+    #         baseline=True,
+    #     )
 
     with open(walking_path / "ts_bboxes.pkl", "rb") as f:
         d1_bboxes = pickle.load(f)
@@ -121,6 +136,14 @@ if __name__ == "__main__":
             "rmse_crop": [],
             "fid_crop": [],
         },
+        "d1_gan": {
+            "ssim": [],
+            "rmse": [],
+            "fid": [],
+            "ssim_crop": [],
+            "rmse_crop": [],
+            "fid_crop": [],
+        },
         "d2_final": {
             "ssim": [],
             "rmse": [],
@@ -130,6 +153,14 @@ if __name__ == "__main__":
             "fid_crop": [],
         },
         "d2_baseline": {
+            "ssim": [],
+            "rmse": [],
+            "fid": [],
+            "ssim_crop": [],
+            "rmse_crop": [],
+            "fid_crop": [],
+        },
+        "d2_gan": {
             "ssim": [],
             "rmse": [],
             "fid": [],
@@ -194,12 +225,27 @@ if __name__ == "__main__":
     #     out_stats["d2_final"]["rmse_crop"].append(crop_stats["rmse"])
     #     out_stats["d2_final"]["fid_crop"].append(crop_stats["fid"])
 
-    for ckpt in d2_baseline_ckpts:
+    for ckpt in d1_gan_ckpts:
         p = [
-            Image.open(i).copy()
-            for i in sorted(
-                glob(str(mmfi_path / f"testset_inference_{ckpt}" / "*_l.png"))
-            )
+            Image.fromarray(i.numpy())
+            for i in tqdm(torch.load(walking_path / f"testset_inference_{ckpt}/all_preds.pt", map_location="cpu"))
+        ]
+        stats = compute_stats(p, d1_ref)
+        crop_stats = compute_stats(
+            crop_to_bboxes(p, d1_bboxes), d1_ref_cropped
+        )
+        out_stats["d1_baseline"]["ssim"].append(stats["ssim"])
+        out_stats["d1_baseline"]["rmse"].append(stats["rmse"])
+        out_stats["d1_baseline"]["fid"].append(stats["fid"])
+
+        out_stats["d1_baseline"]["ssim_crop"].append(crop_stats["ssim"])
+        out_stats["d1_baseline"]["rmse_crop"].append(crop_stats["rmse"])
+        out_stats["d1_baseline"]["fid_crop"].append(crop_stats["fid"])
+
+    for ckpt in d2_gan_ckpts:
+        p = [
+            Image.fromarray(i.numpy())
+            for i in tqdm(torch.load(mmfi_path / f"testset_inference_{ckpt}/all_preds.pt", map_location="cpu"))
         ]
         stats = compute_stats(p, d2_ref)
         crop_stats = compute_stats(
@@ -214,5 +260,5 @@ if __name__ == "__main__":
         out_stats["d2_baseline"]["fid_crop"].append(crop_stats["fid"])
 
     print(out_stats)
-    with open("/data/final_stats_d2_baseline.pkl", mode="wb+") as f:
+    with open("/data/gan_stats.pkl", mode="wb+") as f:
         pickle.dump(out_stats, f)

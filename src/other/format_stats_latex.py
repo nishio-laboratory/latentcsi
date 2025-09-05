@@ -1,6 +1,7 @@
 import numpy as np
 import pickle
 from typing import List, Tuple
+import sys
 
 
 def format_row(s: dict) -> str:
@@ -11,7 +12,7 @@ def format_row(s: dict) -> str:
     return "& " + "\n& ".join(data)
 
 
-with open("/mnt/nas/esrh/csi_image_data/final_stats_merged.pkl", "rb") as f:
+with open(f"/mnt/nas/esrh/csi_image_data/{sys.argv[1]}", "rb") as f:
     stats = pickle.load(f)
     for i in stats:
         print(format_row(stats[i]))
