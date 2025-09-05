@@ -1,0 +1,41 @@
+tsubame_validation = true
+
+[connection]
+host = "tsubame"
+
+[sync.code]
+from = "~/prog/csi_to_image/"
+to = "~/alt/"
+excludes = [".*", "__*", "lightning_logs", "env", "frontend"]
+
+[exec]
+basechannels = 128
+hybridk = 16
+n = 5
+dataset = "walking"
+name = "final_gan_$dataset-$basechannels-$hybridk-$n"
+cmd = [
+"cd ~/alt/csi_to_image",
+"python -m src.encoder.gan -p /gs/fs/tga-nlab/eshan/csi_image_data/datasets/$dataset -n $name --epochs 1000 -b 32 --base-channels $basechannels --hybrid-k $hybridk"
+]
+max_runtime = "10:00:00"
+group = "tga-nlab"
+
+[exec.env]
+dir = "alt/run_$name" # required, directory from which to run cmd
+modules = ["intel", "cuda"]
+python_deps = [
+"torch",
+"torchvision",
+"numpy",
+"diffusers",
+"transformers",
+"accelerate",
+"lightning",
+"more-itertools"
+]
+env_vars = {PYTORCH_CUDA_ALLOC_CONF = "expandable_segments:True"}
+
+[exec.resource]
+type = "gpu_1"
+count = 1
