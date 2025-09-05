@@ -72,7 +72,7 @@ class DatasetCollector:
         return latents
 
     def send_batch(
-        self, csis_bytes: bytes, batch_size: int, t, fut: Future
+        self, csis_bytes: bytes, batch_size: int, t: float, fut: Future
     ) -> None:
         self.send_queue.put((csis_bytes, fut.result().tobytes(), batch_size))
 

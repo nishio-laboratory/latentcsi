@@ -48,3 +48,10 @@ async def update_lr(input: LRInput, st: ServerState = Depends(get_state)):
         c.writer.write(b"chglr" + struct.pack("!f", input.value))
         return {"status": "lr sent"}
     return {"status": "not running"}
+
+
+
+@router.post("/sdsettings")
+async def set_img2img(p: Img2ImgParams, st: ServerState = Depends(get_state)):
+    st.sd_settings = p
+    return {"status": "ok"}

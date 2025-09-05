@@ -4,6 +4,7 @@ import struct
 from typing import ByteString, Optional
 import torch
 import asyncio
+import time
 
 TRAIN_FMT = "!III"
 TRAIN_SIZE = struct.calcsize(TRAIN_FMT)

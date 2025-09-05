@@ -9,7 +9,7 @@ function ImageDisplay({ imageSrc, altText, size = 128 }: ImageDisplayProps) {
   return (
     <div
       className="rounded-lg text-center mx-1 mt-5"
-      style={{ width: px, height: px }}
+      style={{ width: px, height: px}}
     >
       <p>{altText}</p>
       <img

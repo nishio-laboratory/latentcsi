@@ -3,6 +3,7 @@ from demo.client.webserver import control
 from fastapi.staticfiles import StaticFiles
 import struct
 import json
+import time
 import numpy as np
 from PIL import Image
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -62,18 +63,33 @@ async def websocket_endpoint(ws: WebSocket):
     st: ServerState = ws.app.state.state
     await ws.accept()
     clients.add(ws)
+    i = 0
     try:
         while True:
             await st.start_event.wait()
             while st.running and st.server_conn and st.sensor_conn:
                 jpg, csi = await get_jpg_csi(st.sensor_conn)
                 pred = await infer(st.server_conn, csi, st.use_sd_post)
+                pred = pred.half().cuda()
 
                 with torch.no_grad():
-                    img_tensor = st.vae.decode(pred).sample.squeeze().cpu()
+                    if st.sd_settings.enabled and st.sd_settings.prompt != "":
+                        img_tensor = st.sd(
+                            prompt=st.sd_settings.prompt,
+                            image=pred,
+                            strength=st.sd_settings.strength,
+                            guidance_scale=st.sd_settings.cfg
+                        ).images[0].cpu()
+                    else:
+                        img_tensor = st.vae.decode(pred).sample.squeeze().cpu()
+
                 if st.use_sd_post:
                     img_tensor = (img_tensor + 1) / 2
                 pil_img = to_pil_image(img_tensor.clip(0, 1))
+
+                # pil_img.save(f"example_images/predicted_{i}.png")
+                # jpg.save(f"example_images/real_{i}.png")
+                i += 1
 
                 try:
                     await ws.send_text(
