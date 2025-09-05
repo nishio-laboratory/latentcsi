@@ -45,11 +45,12 @@ if __name__ == "__main__":
         )
     )
 
-
     d2_gan_ckpts = list(
         map(
             os.path.basename,
-            glob(str(mmfi_path / "ckpts" / "final_gan_mmfi_hands_two-64-16-*")),
+            glob(
+                str(mmfi_path / "ckpts" / "final_gan_mmfi_hands_two-64-16-*")
+            ),
         )
     )
     d1_gan_ckpts = list(
@@ -228,7 +229,12 @@ if __name__ == "__main__":
     for ckpt in d1_gan_ckpts:
         p = [
             Image.fromarray(i.numpy())
-            for i in tqdm(torch.load(walking_path / f"testset_inference_{ckpt}/all_preds.pt", map_location="cpu"))
+            for i in tqdm(
+                torch.load(
+                    walking_path / f"testset_inference_{ckpt}/all_preds.pt",
+                    map_location="cpu",
+                )
+            )
         ]
         stats = compute_stats(p, d1_ref)
         crop_stats = compute_stats(
@@ -245,7 +251,12 @@ if __name__ == "__main__":
     for ckpt in d2_gan_ckpts:
         p = [
             Image.fromarray(i.numpy())
-            for i in tqdm(torch.load(mmfi_path / f"testset_inference_{ckpt}/all_preds.pt", map_location="cpu"))
+            for i in tqdm(
+                torch.load(
+                    mmfi_path / f"testset_inference_{ckpt}/all_preds.pt",
+                    map_location="cpu",
+                )
+            )
         ]
         stats = compute_stats(p, d2_ref)
         crop_stats = compute_stats(

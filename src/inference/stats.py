@@ -89,14 +89,16 @@ if __name__ == "__main__":
     if not args.use_images:
         p: List[PILImage] = [
             Image.fromarray(i.numpy())
-            for i in tqdm(torch.load(testset_path / "all_preds.pt", map_location="cpu"))
+            for i in tqdm(
+                torch.load(testset_path / "all_preds.pt", map_location="cpu")
+            )
         ]
     else:
         p: List[PILImage] = [
             Image.open(i)
             for i in tqdm(
-                    sorted(glob.glob(str(testset_path / "*_l.png"))),
-                    desc="loading preds",
+                sorted(glob.glob(str(testset_path / "*_l.png"))),
+                desc="loading preds",
             )
         ]
 

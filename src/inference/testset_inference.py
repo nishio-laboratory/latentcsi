@@ -74,7 +74,9 @@ def main(
     inf_path.mkdir(exist_ok=True)
 
     if model_type == "base" or model_type == "gan":
-        test_preds = torch.zeros(len(test), 512, 512, 3, dtype=torch.uint8).to(device)
+        test_preds = torch.zeros(len(test), 512, 512, 3, dtype=torch.uint8).to(
+            device
+        )
     else:
         test_preds = torch.zeros(len(test), 4, 64, 64).to(device)
 
