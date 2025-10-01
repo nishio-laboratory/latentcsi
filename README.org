@@ -18,7 +18,19 @@ All scripts take a =-p/--path= parameter which always refers to the
 top level =dir=.
 
 * Preformatted data (MM-Fi)
-Feel free to use the preformatted MM-Fi subset we used from [[https://www.dropbox.com/scl/fo/im4hj37wru3cd2vf7ai4n/ALAsfhv8F8v7Ei39TjxRhhI?rlkey=cwn8bgzcebb2q6k47dzbby6bh&st=nvlgv0xt&dl=0][here]]. The reference photos are quite large so they're not included. If you want to work on a different subset of MM-fi, you can obtain a copy and then use my tool in src.targets.mmfi_format which will generate photo/csi pairs for you.
+Feel free to use the preformatted MM-Fi subset we used from [[https://www.dropbox.com/scl/fo/im4hj37wru3cd2vf7ai4n/ALAsfhv8F8v7Ei39TjxRhhI?rlkey=cwn8bgzcebb2q6k47dzbby6bh&st=nvlgv0xt&dl=0][here]]. The
+reference photos are quite large so they're not included. If you want
+to work on a different subset of MM-fi, you can obtain a copy and then
+use my tool in =src.targets.mmfi_format= which will generate photo/csi
+pairs for you.
+
+* Demo (WIP)
+Contains some WIP code for a real-time demo.
+- =demo/latentcsi-sensor-rs=: Rust CSI sensor code to collect paired
+  csi/image data sample, encode to latent, and send to a training
+  server
+- =demo/server=: Online model training server
+- =demo/client=: Frontend image streaming client
 
 * Data locations
 CSI data (x): csi.npy
