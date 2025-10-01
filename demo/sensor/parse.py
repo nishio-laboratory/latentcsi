@@ -125,7 +125,7 @@ def parse(input):
     while len(input) > step:
         data = {}
         data["header"] = parseHeader(input[step : (step + 272)])
-        data["header"]["num_rx"] = 1  # TODO: Try to reproduce RX2
+        data["header"]["num_rx"] = 2  # TODO: Try to reproduce RX2
         step += 272
         data["csi_matrix"] = parseCsiData(
             input[step : (step + data["header"]["csi_size"])], data["header"]

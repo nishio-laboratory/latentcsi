@@ -13,13 +13,11 @@ from PIL import Image
 
 def worker(rank, latent, q, args, sd_kwargs):
     torch.set_grad_enabled(False)
-
     device = torch.device(f"cuda:{rank}")
     sd = load_sd(args.path, device)
     latent = latent.to(device)
     for _ in range(args.runs):
         q.put((sd_kwargs, generate(sd, latent, **sd_kwargs)))
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -85,7 +85,6 @@ class DatasetCollector:
                 len(csis_bytes),
                 len(lat_bytes),
                 batch_size,
-            )
             self.server_socket.sendmsg([hdr, csis_bytes, lat_bytes])
             self.send_queue.task_done()
 

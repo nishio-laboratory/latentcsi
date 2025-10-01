@@ -4,23 +4,25 @@ import asyncio
 import struct
 
 SERVER_HOST, SERVER_PORT = "192.168.1.221", 9999
-SENSOR_HOST, SENSOR_PORT = "192.168.2.4", 10000
+SENSOR_HOST, SENSOR_PORT = "192.168.1.32", 10000
 router = APIRouter(prefix="/control")
 
 @router.post("/start")
 async def start(st: ServerState = Depends(get_state)):
+    print("started")
     if st.running:
         return {"status": "already running"}
-
     try:
         st.server_conn = Connection(*await asyncio.open_connection(SERVER_HOST, SERVER_PORT))
     except Exception as e:
         return {"status": "error", "detail": str(e)}
+
+    print("server_conn opened")
     try:
         st.sensor_conn = Connection(*await asyncio.open_connection(SENSOR_HOST, SENSOR_PORT))
     except Exception as e:
         return {"status": "error", "detail": str(e)}
-
+    print("sensor_conn opened")
     st.running = True
     st.start_event.set()
     return {"status": "started"}

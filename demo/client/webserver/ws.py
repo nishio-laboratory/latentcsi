@@ -43,6 +43,7 @@ async def infer(server_conn: Connection, csi: np.ndarray, use_sd_post: bool) -> 
 
 
 async def get_jpg_csi(sensor_conn: Connection):
+    print("querying sensor...")
     sensor_conn.writer.write(b"jpg")
     await sensor_conn.writer.drain()
     l_i, l_c = struct.unpack("!II", await sensor_conn.reader.readexactly(8))

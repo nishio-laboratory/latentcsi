@@ -7,9 +7,17 @@ import pycuda.autoinit
 from typing import cast
 import struct
 from demo.sensor.send_to_edge import HEADER_FMT, HEADER_SIZE
+from PIL import Image
+from io import BytesIO
+import argparse
 
 np.bool = np.bool_
 
+def center_crop(img: Image.Image, size: int = 512) -> Image.Image:
+    w, h = img.size
+    left   = (w - size) // 2
+    top    = (h - size) // 2
+    return img.crop((left, top, left + size, top + size))
 
 class TRTModel:
     """
@@ -78,6 +86,7 @@ class Handler(socketserver.StreamRequestHandler):
             msg_type, request_id, bs, size = struct.unpack(HEADER_FMT, hdr)
             data = f.read(size)
             if msg_type == 1:
+                # precropped bs x 3x512x512 u8 img
                 arr = (
                     np.frombuffer(data, dtype=np.uint8)
                     .reshape(bs, 3, 512, 512)
@@ -85,6 +94,11 @@ class Handler(socketserver.StreamRequestHandler):
                 )
                 out_arr = encoder.infer(arr.astype(np.float32) / 255.0)
             elif msg_type == 2:
+                # data /
+                img = Image.open(BytesIO(data))
+                arr = np.asarray(center_crop(img), dtype=np.uint8)
+                out_arr = encoder.infer(arr.astype(np.float32) / 255.0)
+            elif msg_type == 3:
                 arr = np.frombuffer(data, dtype=np.float32).reshape(
                     bs, 4, 64, 64
                 )
@@ -100,10 +114,14 @@ class Handler(socketserver.StreamRequestHandler):
 
 
 if __name__ == "__main__":
-    host, port = "0.0.0.0", 8000
-    encoder = TRTModel(Path("/trt/taesd_encoder_min1o4max8.trt"))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="0.0.0.0", type=str)
+    parser.add_argument("--port", default=8000, type=int)
+    parser.add_argument("--model", default=Path("/trt/taesd_encoder_min4o8max16.trt"), type=Path)
+    args = parser.parse_args()
+    encoder = TRTModel(args.model)
     # decoder = TRTModel(Path("./trt/taesd_decoder.trt"))
-    with socketserver.TCPServer((host, port), Handler) as server:
+    with socketserver.TCPServer((args.host, args.port), Handler) as server:
         server.encoder, server.decoder = encoder, encoder
-        print(f"Serving on {host}:{port}...")
+        print(f"Serving on {args.host}:{args.port}...")
         server.serve_forever()

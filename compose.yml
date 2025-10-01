@@ -9,10 +9,10 @@ services:
               count: "all"
               capabilities: [gpu]
     volumes:
-      - "/home/esrh/csi_to_image:/workspace"
+      - "/home/esrh/csi_to_image_2:/workspace"
     ports:
       - "9999:9999"
-    command: "python3 -m demo.server.server"
+    command: "python3 -m demo.server.server_recv_benchmark"
     stdin_open: true
     tty: true
 
