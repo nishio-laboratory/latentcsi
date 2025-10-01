@@ -1,3 +1,19 @@
+* Introduction
+[[https://arxiv.org/abs/2506.10605][Arxiv paper]]
+
+This repo contains the code for LatentCSI. We replace the encoder
+component of the stable diffusion image to image pipeline with our own
+model that takes CSI as input. This model can be small and trained
+fast while enabling higher output resolution and text-guidance. =src=
+contains reproduction code for the supervised training demonstrated in
+the paper.
+
+The use of latent vectors offers a natural way to scale the method to
+a distributed setup with possibly multiple CSI sensors, minimizing
+data transmitted and thus maximizing throughput. =demo= contains this
+work in progress online training demo. We'll present this demo at
+Mobicom 2025!
+
 * Usage flow
 1. Gather data into =dir=. This is:
    - =photos.npy= or =photos.pt=
