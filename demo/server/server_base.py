@@ -25,6 +25,11 @@ class TrainableModule(torch.nn.Module, ABC):
     def update_lr(self, lr: float):
         pass
 
+    def reset(self):
+        for layer in self.children():
+            if hasattr(layer, "reset_parameters"):
+                layer.reset_parameters()
+
 
 class TrainingServerBase(ABC):
     def __init__(

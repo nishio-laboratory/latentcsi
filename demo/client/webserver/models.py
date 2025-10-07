@@ -38,7 +38,6 @@ class ServerState:
         self.sensor_conn: Optional[Connection] = None
         self.vae = AutoencoderTiny.from_pretrained("madebyollin/taesd", torch_dtype=torch.half).to("cuda")
         self.sd = StableDiffusionImg2ImgPipeline.from_pretrained("stable-diffusion-v1-5/stable-diffusion-v1-5", torch_dtype=torch.half).to("cuda")
-        print(self.sd.dtype)
 
         self.sd.safety_checker = None
         self.sd.image_processor = DummyImageProcessor()
@@ -56,6 +55,7 @@ class ServerState:
         self.use_sd_post: bool = False
         self.running: bool = False
         self.start_event = Event()
+        self.shutdown_event = Event()
 
 
 

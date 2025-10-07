@@ -12,6 +12,7 @@ from io import BytesIO
 import asyncio
 import torch
 from torchvision.transforms.functional import to_pil_image
+from starlette.endpoints import WebSocketEndpoint
 
 router = APIRouter()
 clients: set[WebSocket] = set()
@@ -43,7 +44,6 @@ async def infer(server_conn: Connection, csi: np.ndarray, use_sd_post: bool) -> 
 
 
 async def get_jpg_csi(sensor_conn: Connection):
-    print("querying sensor...")
     sensor_conn.writer.write(b"jpg")
     await sensor_conn.writer.drain()
     l_i, l_c = struct.unpack("!II", await sensor_conn.reader.readexactly(8))
@@ -59,61 +59,58 @@ def encode_img(img) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
-@router.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    st: ServerState = ws.app.state.state
-    await ws.accept()
-    clients.add(ws)
-    i = 0
-    try:
+@router.websocket_route("/ws")
+class ImageEndpoint(WebSocketEndpoint):
+    async def on_connect(self, websocket: WebSocket) -> None:
+        self.st: ServerState = websocket.app.state.state
+        await websocket.accept()
+        await self.send_task(websocket)
+
+    async def send_task(self, ws: WebSocket):
         while True:
-            await st.start_event.wait()
-            while st.running and st.server_conn and st.sensor_conn:
-                jpg, csi = await get_jpg_csi(st.sensor_conn)
-                pred = await infer(st.server_conn, csi, st.use_sd_post)
+            await self.st.start_event.wait()
+            print(self.st.running, self.st.server_conn, self.st.sensor_conn)
+            while self.st.running and self.st.server_conn and self.st.sensor_conn:
+                # print("Entered main loop!")
+                jpg, csi = await get_jpg_csi(self.st.sensor_conn)
+                pred = await infer(self.st.server_conn, csi, self.st.use_sd_post)
                 pred = pred.half().cuda()
 
                 with torch.no_grad():
-                    if st.sd_settings.enabled and st.sd_settings.prompt != "":
-                        img_tensor = st.sd(
-                            prompt=st.sd_settings.prompt,
+                    if self.st.sd_settings.enabled and self.st.sd_settings.prompt != "":
+                        img_tensor = self.st.sd(
+                            prompt=self.st.sd_settings.prompt,
                             image=pred,
-                            strength=st.sd_settings.strength,
-                            guidance_scale=st.sd_settings.cfg
+                            strength=self.st.sd_settings.strength,
+                            guidance_scale=self.st.sd_settings.cfg
                         ).images[0].cpu()
                     else:
-                        img_tensor = st.vae.decode(pred).sample.squeeze().cpu()
+                        img_tensor = self.st.vae.decode(pred).sample.squeeze().cpu()
 
-                if st.use_sd_post:
+                if self.st.use_sd_post:
                     img_tensor = (img_tensor + 1) / 2
                 pil_img = to_pil_image(img_tensor.clip(0, 1))
 
                 # pil_img.save(f"example_images/predicted_{i}.png")
                 # jpg.save(f"example_images/real_{i}.png")
-                i += 1
+                await ws.send_text(
+                    json.dumps(
+                        {
+                            "stream": "pred",
+                            "img": encode_img(pil_img)
+                        }
+                    )
+                )
+                await ws.send_text(
+                    json.dumps(
+                        {
+                            "stream": "true",
+                            "img": encode_img(jpg)
+                        }
+                    )
+                )
+                await asyncio.sleep(self.st.interval)
+            self.st.start_event.clear()
 
-                try:
-                    await ws.send_text(
-                        json.dumps(
-                            {
-                                "stream": "pred",
-                                "img": encode_img(pil_img)
-                            }
-                        )
-                    )
-                    await ws.send_text(
-                        json.dumps(
-                            {
-                                "stream": "true",
-                                "img": encode_img(jpg)
-                            }
-                        )
-                    )
-                except WebSocketDisconnect:
-                    await control.stop(st)
-                    return
-                await asyncio.sleep(st.interval)
-            st.start_event.clear()
-    finally:
-        await control.stop(st)
-        clients.remove(ws)
+    async def on_disconnect(self, websocket: WebSocket, close_code: int) -> None:
+        pass

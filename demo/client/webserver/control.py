@@ -4,7 +4,7 @@ import asyncio
 import struct
 
 SERVER_HOST, SERVER_PORT = "192.168.1.221", 9999
-SENSOR_HOST, SENSOR_PORT = "192.168.1.32", 10000
+SENSOR_HOST, SENSOR_PORT = "localhost", 10000
 router = APIRouter(prefix="/control")
 
 @router.post("/start")
