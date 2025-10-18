@@ -19,6 +19,7 @@ def worker(rank, latent, q, args, sd_kwargs):
     for _ in range(args.runs):
         q.put((sd_kwargs, generate(sd, latent, **sd_kwargs)))
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--path", type=Path)

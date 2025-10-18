@@ -1,156 +1,142 @@
-import asyncio
-import random
-import struct
-import torch
-import torch.nn.functional as F
-from src.encoder.model import CNNDecoder
-from demo.server.server_base import TrainableModule, TrainingServerBase
 from typing import ByteString, Optional
-import numpy as np
+import struct
+import time
+from diffusers import AutoencoderTiny
+import torch
+import asyncio
+import torch.multiprocessing as mp
+from demo.server.decoder import decode_latent_to_image
+from demo.server.protocol import Data, InferLastReq
+from demo.server.trainers.basic import TrainerLastReplay
+from src.inference.utils import pil_image_to_bytes
+from src.other.types import *
+from demo.server.trainer_base import TrainerBase, LockedTensor
 
 
-class CNNDecoderTrainable(CNNDecoder, TrainableModule):
-    def __init__(self, lr: float = 1e-3, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-
-    def get_input_dim(self) -> int:
-        return self.input_dim
-
-    def update_lr(self, lr: float):
-        for param_group in self.optimizer.param_groups:
-            param_group["lr"] = lr
-
-    def train_step(
-        self, inp: torch.Tensor, target: torch.Tensor
-    ) -> torch.Tensor:
-        self.train()
-        self.optimizer.zero_grad()
-        pred = self.forward(inp)
-        loss = F.mse_loss(pred, target)
-        loss.backward()
-        self.optimizer.step()
-        return loss
-
-
-class ReservoirBuffer:
-    def __init__(self, buffer_size: int, replace_rate: float = 1.0):
-        self.buffer_size = buffer_size
-        self.replace_rate = replace_rate
-        self.reservoir: list[tuple[torch.Tensor, torch.Tensor]] = []
-        self.count = 0
-
-    def add(self, sample: tuple[torch.Tensor, torch.Tensor]):
-        self.count += 1
-        if len(self.reservoir) < self.buffer_size:
-            self.reservoir.append(sample)
-        else:
-            if random.random() <= self.replace_rate:
-                j = random.randrange(self.count)
-                if j < self.buffer_size:
-                    self.reservoir[j] = sample
-
-    def sample_batch(
-        self, batch_size: int
-    ) -> list[tuple[torch.Tensor, torch.Tensor]]:
-        k = min(batch_size, len(self.reservoir))
-        return random.sample(self.reservoir, k)
-
-
-class TrainingServer(TrainingServerBase):
-    def __init__(
-        self,
-        buffer_size: int = 1000,
-        replace_rate: float = 1.0,
-        replay_fraction: float = 0.5,
-        *args,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        self.last: Optional[torch.Tensor] = None
-        self.reservoir = ReservoirBuffer(buffer_size, replace_rate)
-        self.replay_fraction = replay_fraction
-        self.batches_trained = 0
-
-    def train_received(self, inp, latent):
-        self.last = inp[-1].unsqueeze(0)
-
-    async def train_worker(self):
-        print(
-            f"Train worker started (inp_size={self.model.get_input_dim()}, batch={self.batch_size})"
+class TrainingServerBase:
+    def __init__(self, host: str, port: int, trainer: type[TrainerBase]):
+        self.host = host
+        self.port = port
+        self.ctx = mp.get_context("spawn")
+        self.data_queue: mp.Queue[Batch] = self.ctx.Queue(maxsize=100)
+        self.message_queue: mp.Queue[Message] = self.ctx.Queue(maxsize=1000)
+        self.out_tensor: LockedTensor = LockedTensor(
+            torch.zeros(1, 4, 64, 64), self.ctx.Lock()
         )
+        self.ae_tiny = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(
+            torch.device("cuda:1")
+        )
+        self.trainer = trainer
+
+    async def handle_client(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ):
+        addr = writer.get_extra_info("peername")
+        print(f"Client connected: {addr}")
+        t, i = 0, 0
+        inf_elapsed_times = []
         try:
             while True:
-                fresh_samples = [
-                    await self.queue.get() for _ in range(self.batch_size)
-                ]
-                for sample in fresh_samples:
-                    self.reservoir.add(sample)
+                header = await reader.readexactly(5)
+                if header == b"train":
+                    req_len = struct.unpack("!I", await reader.readexactly(4))[
+                        0
+                    ]
+                    packet = Data.parse(await reader.readexactly(req_len))
+                    inputs = BatchCSI(
+                        torch.frombuffer(
+                            bytearray(packet.input_bytes), dtype=torch.float32
+                        ).view(packet.input_shape.dims)
+                    )
 
-                num_replay = int(self.batch_size * self.replay_fraction)
-                num_fresh = self.batch_size - num_replay
+                    outputs = BatchTrueLatent(
+                        torch.frombuffer(
+                            bytearray(packet.output_bytes), dtype=torch.float32
+                        ).view(packet.output_shape.dims)
+                    )
+                    # img = decode_latent_to_image(outputs[0].unsqueeze(0), self.ae_tiny, scale=False)
+                    # img.save("test.png")
+                    if self.data_queue.full():
+                        self.data_queue.get()
+                    self.data_queue.put_nowait(Batch(inputs, outputs))
 
-                replay_samples = self.reservoir.sample_batch(num_replay)
-                batch = fresh_samples[:num_fresh] + replay_samples
-
-                inputs = torch.cat([s[0] for s in batch], dim=0).to(
-                    self.device
-                )
-                targets = torch.cat([s[1] for s in batch], dim=0).to(
-                    self.device
-                )
-                loss = await asyncio.to_thread(
-                    self.model.train_step, inputs, targets
-                )
-                self.batches_trained += 1
-                print(
-                    f"Batch {self.batches_trained} trained! Loss: {loss.item():.6f}"
-                )
-        except asyncio.CancelledError:
-            print("Train worker cancelled")
-            raise
+                elif header == b"itrai":
+                    req_len = struct.unpack("!I", await reader.readexactly(4))[
+                        0
+                    ]
+                    req = InferLastReq.parse(await reader.readexactly(req_len))
+                    now = time.time()
+                    latent_tensor = PredLatent(
+                        (await asyncio.to_thread(self.out_tensor.get_copy)).to(
+                            1
+                        )
+                    )
+                    img = await asyncio.to_thread(
+                        decode_latent_to_image,
+                        latent_tensor,
+                        self.ae_tiny,
+                        scale=False,
+                    )
+                    img_bytes = pil_image_to_bytes(img)
+                    writer.write(len(img_bytes).to_bytes(4, "big") + img_bytes)
+                    await writer.drain()
+                    elapsed = time.time() - now
+                    inf_elapsed_times.append(elapsed)
+                    i += 1
+                    if i % 50 == 0:
+                        print(
+                            f"avg time to compute: {sum(inf_elapsed_times) / len(inf_elapsed_times)}"
+                        )
+                        inf_elapsed_times = []
+                    elif header == b"messg":
+                        req_len = struct.unpack(
+                            "!I", await reader.readexactly(4)
+                        )[0]
+                        msg_str = (await reader.readexactly(req_len)).decode(
+                            "utf-8"
+                        )
+                        self.message_queue.put_nowait(check_msg(msg_str))
+                else:
+                    out = await self.dispatch(header, reader)
+                    if out:
+                        writer.write(out)
+                        await writer.drain()
+        except asyncio.IncompleteReadError:
+            pass
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            print(f"Client disconnected: {addr}")
 
     async def dispatch(
         self, header: ByteString, reader: asyncio.StreamReader
     ) -> Optional[ByteString]:
-        if header == b"infer":
-            l_c = struct.unpack("!I", await reader.readexactly(4))[0]
-            csi = np.frombuffer(await reader.readexactly(l_c), dtype=np.float32)
-            csi = csi.reshape((1, 1992))
-            csi = torch.Tensor(csi).to(self.device)
-            self.model.eval()
-            with torch.no_grad():
-                out = self.model(csi)
-            out = out.cpu().numpy().tobytes()
-            return struct.pack("!I", len(out)) + out
+        pass
 
-        if header == b"ilast":
-            if self.last is not None:
-                self.model.eval()
-                with torch.no_grad():
-                    out = self.model(self.last.to(self.device))
-                out = out.cpu().numpy().tobytes()
-                return struct.pack("!I", len(out)) + out
-        if header == b"chglr":
-            lr = struct.unpack("!f", await reader.readexactly(4))[0]
-            self.model.update_lr(lr)
+    async def start(self):
+        server = await asyncio.start_server(
+            self.handle_client, self.host, self.port
+        )
+        print(f"TCP server listening on {self.host}:{self.port}")
+
+        train_process = self.ctx.Process(
+            target=self.trainer,
+            args=(
+                self.data_queue,
+                self.message_queue,
+                self.out_tensor,
+                torch.device("cuda:0"),
+            ),
+        )
+        train_process.start()
+
+        async with server:
+            await server.serve_forever()
 
 
 async def main():
-    model = CNNDecoderTrainable(
-        input_dim=1992,
-        base_channels=128,
-        lr=1e-3,
-    ).to(1)
-    srv = TrainingServer(
-        host="0.0.0.0",
-        port=9999,
-        model=model,
-        batch_size=16,
-        buffer_size=1000,
-        replace_rate=0.1,
-        replay_fraction=0,
-        max_queue_size=500,
+    srv = TrainingServerBase(
+        host="0.0.0.0", port=9999, trainer=TrainerLastReplay
     )
     await srv.start()
 

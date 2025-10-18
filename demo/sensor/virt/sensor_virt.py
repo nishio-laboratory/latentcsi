@@ -6,6 +6,7 @@ import threading
 import io
 from PIL import Image
 
+
 def main():
     path = Path("/mnt/nas/esrh/csi_image_data/datasets/walking_test")
     csi = np.load(path / "csi.npy")
@@ -13,10 +14,7 @@ def main():
 
     buf = io.BytesIO()
     Image.fromarray(photos[-1]).save(buf, format="JPEG")
-    sample = (
-        csi[-1],
-        buf.getvalue()
-    )
+    sample = (csi[-1], buf.getvalue())
 
     serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     serv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -30,7 +28,9 @@ def main():
             conn, _ = serv.accept()
         except socket.timeout:
             continue
-        threading.Thread(target=handle, args=(conn, sample), daemon=True).start()
+        threading.Thread(
+            target=handle, args=(conn, sample), daemon=True
+        ).start()
 
 
 def handle(conn: socket.socket, sample: tuple[np.ndarray, bytes]):
@@ -46,9 +46,11 @@ def handle(conn: socket.socket, sample: tuple[np.ndarray, bytes]):
                 print("Received request")
                 csi_bytes = sample[0].astype(np.float32).tobytes()
                 conn.sendall(
-                    struct.pack("!II", len(sample[1]), len(csi_bytes)) +
-                    sample[1] + csi_bytes
+                    struct.pack("!II", len(sample[1]), len(csi_bytes))
+                    + sample[1]
+                    + csi_bytes
                 )
+
 
 if __name__ == "__main__":
     main()

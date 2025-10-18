@@ -85,11 +85,12 @@ class TrainingServer(TrainingServerBase):
             window_start = time.time()
             while True:
                 await self.queue.get()
-                if i%100 == 0:
-                    print(f"Avg window time/samp: {(time.time() - window_start)/100}")
+                if i % 100 == 0:
+                    print(
+                        f"Avg window time/samp: {(time.time() - window_start) / 100}"
+                    )
                     window_start = time.time()
                 i += 1
-
 
         except asyncio.CancelledError:
             print("Train worker cancelled")
@@ -100,7 +101,9 @@ class TrainingServer(TrainingServerBase):
     ) -> Optional[ByteString]:
         if header == b"infer":
             l_c = struct.unpack("!I", await reader.readexactly(4))[0]
-            csi = np.frombuffer(await reader.readexactly(l_c), dtype=np.float32)
+            csi = np.frombuffer(
+                await reader.readexactly(l_c), dtype=np.float32
+            )
             csi = csi.reshape((1, 1992))
             csi = torch.Tensor(csi).to(self.device)
             self.model.eval()

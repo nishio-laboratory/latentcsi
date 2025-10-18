@@ -3,26 +3,18 @@ from pydantic import BaseModel, PositiveFloat, confloat
 from asyncio import StreamReader, StreamWriter, Event
 from typing import Optional, Annotated
 from diffusers import AutoencoderTiny, StableDiffusionImg2ImgPipeline
+from demo.client.utils import DummyImageProcessor
 import torch
 
+
 class Connection:
-    def __init__(self, reader: StreamReader , writer: StreamWriter):
+    def __init__(self, reader: StreamReader, writer: StreamWriter):
         self.reader = reader
         self.writer = writer
 
     async def close(self):
         self.writer.close()
         await self.writer.wait_closed()
-
-
-class DummyImageProcessor:
-    def __init__(self, *args, **kwargs):
-        pass
-    def preprocess(self, image, *args, **kwargs):
-        return image
-    def postprocess(self, image, *args, **kwargs):
-        return image
-
 
 
 class Img2ImgParams(BaseModel):
@@ -32,23 +24,25 @@ class Img2ImgParams(BaseModel):
     strength: Annotated[float, confloat(gt=0, le=1.0)]
     cfg: float
 
+
 class ServerState:
     def __init__(self):
         self.server_conn: Optional[Connection] = None
         self.sensor_conn: Optional[Connection] = None
-        self.vae = AutoencoderTiny.from_pretrained("madebyollin/taesd", torch_dtype=torch.half).to("cuda")
-        self.sd = StableDiffusionImg2ImgPipeline.from_pretrained("stable-diffusion-v1-5/stable-diffusion-v1-5", torch_dtype=torch.half).to("cuda")
+        # self.vae = AutoencoderTiny.from_pretrained(
+        #     "madebyollin/taesd", torch_dtype=torch.half
+        # ).to("cuda")
+        # self.sd = StableDiffusionImg2ImgPipeline.from_pretrained(
+        #     "stable-diffusion-v1-5/stable-diffusion-v1-5",
+        #     torch_dtype=torch.half,
+        # ).to("cuda")
 
-        self.sd.safety_checker = None
-        self.sd.image_processor = DummyImageProcessor()
-        self.sd.vae = self.vae
+        # self.sd.safety_checker = None
+        # self.sd.image_processor = DummyImageProcessor()
+        # self.sd.vae = self.vae
 
         self.sd_settings = Img2ImgParams(
-            enabled=False,
-            prompt="",
-            negativePrompt="",
-            strength=0.55,
-            cfg=7
+            enabled=False, prompt="", negativePrompt="", strength=0.55, cfg=7
         )
 
         self.interval: float = 0.33
@@ -58,9 +52,9 @@ class ServerState:
         self.shutdown_event = Event()
 
 
-
 class SliderInput(BaseModel):
     value: Annotated[float, confloat(gt=0, le=1.0)]
+
 
 class LRInput(BaseModel):
     value: PositiveFloat

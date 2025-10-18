@@ -12,14 +12,20 @@ from demo.client.webserver.control import router as ctrl_router
 from starlette.websockets import WebSocketState
 import signal
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.state = ServerState()
     yield
     app.state.state.shutdown_event.set()
 
+
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(ws_router)
 app.include_router(ctrl_router)
-app.mount("/", StaticFiles(directory="demo/client/webserver/frontend/dist"), name="static")
+app.mount(
+    "/",
+    StaticFiles(directory="demo/client/webserver/frontend/dist"),
+    name="static",
+)

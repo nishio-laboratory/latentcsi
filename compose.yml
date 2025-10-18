@@ -10,9 +10,10 @@ services:
               capabilities: [gpu]
     volumes:
       - "/home/esrh/csi_to_image_2:/workspace"
+      - "/mnt/nas/esrh/csi_image_data/sd:/sd"
     ports:
       - "9999:9999"
-    command: "python3 -m demo.server.server_recv_benchmark"
+    command: "python3 -m demo.server.server"
     stdin_open: true
     tty: true
 

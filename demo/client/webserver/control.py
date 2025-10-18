@@ -7,25 +7,31 @@ SERVER_HOST, SERVER_PORT = "192.168.1.221", 9999
 SENSOR_HOST, SENSOR_PORT = "localhost", 10000
 router = APIRouter(prefix="/control")
 
+
 @router.post("/start")
 async def start(st: ServerState = Depends(get_state)):
     print("started")
     if st.running:
         return {"status": "already running"}
     try:
-        st.server_conn = Connection(*await asyncio.open_connection(SERVER_HOST, SERVER_PORT))
+        st.server_conn = Connection(
+            *await asyncio.open_connection(SERVER_HOST, SERVER_PORT)
+        )
     except Exception as e:
         return {"status": "error", "detail": str(e)}
 
     print("server_conn opened")
-    try:
-        st.sensor_conn = Connection(*await asyncio.open_connection(SENSOR_HOST, SENSOR_PORT))
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
-    print("sensor_conn opened")
+    # try:
+    #     st.sensor_conn = Connection(
+    #         *await asyncio.open_connection(SENSOR_HOST, SENSOR_PORT, ssl_handshake_timeout=2)
+    #     )
+    # except Exception as e:
+    #     return {"status": "error", "detail": str(e)}
+    # print("sensor_conn opened")
     st.running = True
     st.start_event.set()
     return {"status": "started"}
+
 
 @router.post("/stop")
 async def stop(st: ServerState = Depends(get_state)):
@@ -38,10 +44,14 @@ async def stop(st: ServerState = Depends(get_state)):
     st.server_conn = None
     return {"status": "stopped"}
 
+
 @router.post("/slider")
-async def update_slider(input: SliderInput, st: ServerState = Depends(get_state)):
+async def update_slider(
+    input: SliderInput, st: ServerState = Depends(get_state)
+):
     st.interval = input.value
     return {"status": "interval updated"}
+
 
 @router.post("/lr")
 async def update_lr(input: LRInput, st: ServerState = Depends(get_state)):
@@ -50,7 +60,6 @@ async def update_lr(input: LRInput, st: ServerState = Depends(get_state)):
         c.writer.write(b"chglr" + struct.pack("!f", input.value))
         return {"status": "lr sent"}
     return {"status": "not running"}
-
 
 
 @router.post("/sdsettings")

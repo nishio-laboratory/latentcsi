@@ -13,11 +13,13 @@ import argparse
 
 np.bool = np.bool_
 
+
 def center_crop(img: Image.Image, size: int = 512) -> Image.Image:
     w, h = img.size
-    left   = (w - size) // 2
-    top    = (h - size) // 2
+    left = (w - size) // 2
+    top = (h - size) // 2
     return img.crop((left, top, left + size, top + size))
+
 
 class TRTModel:
     """
@@ -89,7 +91,8 @@ class Handler(socketserver.StreamRequestHandler):
                 # precropped bs x 3x512x512 u8 img
                 arr = (
                     np.frombuffer(data, dtype=np.uint8)
-                    .reshape(bs, 3, 512, 512)
+                    .reshape(bs, 512, 512, 3)
+                    .transpose((0, 3, 1, 2))
                     .copy()
                 )
                 out_arr = encoder.infer(arr.astype(np.float32) / 255.0)
@@ -117,7 +120,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="0.0.0.0", type=str)
     parser.add_argument("--port", default=8000, type=int)
-    parser.add_argument("--model", default=Path("/trt/taesd_encoder_min4o8max16.trt"), type=Path)
+    parser.add_argument(
+        "--model",
+        default=Path("/trt/taesd_encoder_min4o8max16.trt"),
+        type=Path,
+    )
     args = parser.parse_args()
     encoder = TRTModel(args.model)
     # decoder = TRTModel(Path("./trt/taesd_decoder.trt"))

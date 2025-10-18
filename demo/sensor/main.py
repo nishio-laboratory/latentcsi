@@ -45,7 +45,7 @@ class DatasetCollector:
         tx_ip: str = "192.168.2.5",
         server_ip: str = "192.168.1.221",
         start_rx_process: bool = False,
-        serve_port: int = 9000
+        serve_port: int = 9000,
     ):
         self.rx_cmd_string = f"feitcsi -f {frequency} -w 160 -r {format}"
         self.tx_cmd_string = (
@@ -85,6 +85,7 @@ class DatasetCollector:
                 len(csis_bytes),
                 len(lat_bytes),
                 batch_size,
+            )
             self.server_socket.sendmsg([hdr, csis_bytes, lat_bytes])
             self.send_queue.task_done()
 
@@ -108,8 +109,9 @@ class DatasetCollector:
                 conn, _ = serv.accept()
             except socket.timeout:
                 continue
-            threading.Thread(target=self._handle_client,
-                             args=(conn,), daemon=True).start()
+            threading.Thread(
+                target=self._handle_client, args=(conn,), daemon=True
+            ).start()
 
     def _handle_client(self, conn: socket.socket) -> None:
         conn.settimeout(1.0)
@@ -132,13 +134,15 @@ class DatasetCollector:
                     buf = io.BytesIO()
                     Image.fromarray(img).save(buf, format="JPEG")
                     img_bytes = buf.getvalue()
-                    lengths = struct.pack("!II", len(img_bytes),
-                                          len(csi_bytes))
+                    lengths = struct.pack(
+                        "!II", len(img_bytes), len(csi_bytes)
+                    )
                     conn.sendall(lengths + img_bytes + csi_bytes)
                 elif hdr == b"raw":
                     img_bytes = photo.tobytes()
-                    lengths = struct.pack("!II", len(img_bytes),
-                                          len(csi_bytes))
+                    lengths = struct.pack(
+                        "!II", len(img_bytes), len(csi_bytes)
+                    )
                     conn.sendall(lengths + img_bytes + csi_bytes)
                 else:
                     lengths = struct.pack("!I", len(csi_bytes))
@@ -237,9 +241,7 @@ class DatasetCollector:
                 photo_buf.add(photo)
                 csi_window.append(csi)
                 if len(csi_window) == win_size:
-                    csi_buf.add(
-                        np.mean(np.stack(csi_window), axis=0)
-                    )
+                    csi_buf.add(np.mean(np.stack(csi_window), axis=0))
                 if photo_buf.full() and len(csi_window) == win_size:
                     imgs = photo_buf.buffer.copy()
                     csis = csi_buf.buffer.copy().tobytes()
@@ -300,6 +302,6 @@ if __name__ == "__main__":
         tx_ip=args.tx_ip,
         server_ip=args.server_ip,
         start_rx_process=args.start_rx_process,
-        serve_port=args.port
+        serve_port=args.port,
     )
     dc.start()
