@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import ByteString, Optional
 import struct
 import time
@@ -8,6 +9,7 @@ import torch.multiprocessing as mp
 from demo.server.decoder import decode_latent_to_image
 from demo.server.protocol import Data, InferLastReq
 from demo.server.trainers.basic import TrainerLastReplay
+from demo.server.trainers.signal_stop import TrainerStoppable
 from src.inference.utils import pil_image_to_bytes
 from src.other.types import *
 from demo.server.trainer_base import TrainerBase, LockedTensor
@@ -88,14 +90,15 @@ class TrainingServerBase:
                             f"avg time to compute: {sum(inf_elapsed_times) / len(inf_elapsed_times)}"
                         )
                         inf_elapsed_times = []
-                    elif header == b"messg":
-                        req_len = struct.unpack(
-                            "!I", await reader.readexactly(4)
-                        )[0]
-                        msg_str = (await reader.readexactly(req_len)).decode(
-                            "utf-8"
-                        )
-                        self.message_queue.put_nowait(check_msg(msg_str))
+                elif header == b"messa":
+                    req_len = struct.unpack(
+                        "!I", await reader.readexactly(4)
+                    )[0]
+                    msg_str = (await reader.readexactly(req_len)).decode(
+                        "utf-8"
+                    )
+                    print(f"message recvd: {msg_str}")
+                    self.message_queue.put_nowait(check_msg(msg_str))
                 else:
                     out = await self.dispatch(header, reader)
                     if out:
@@ -136,7 +139,7 @@ class TrainingServerBase:
 
 async def main():
     srv = TrainingServerBase(
-        host="0.0.0.0", port=9999, trainer=TrainerLastReplay
+        host="0.0.0.0", port=9999, trainer=TrainerStoppable
     )
     await srv.start()
 

@@ -61,6 +61,14 @@ async def update_lr(input: LRInput, st: ServerState = Depends(get_state)):
         return {"status": "lr sent"}
     return {"status": "not running"}
 
+@router.post("/msg")
+async def send_msg(input: MsgInput, st: ServerState = Depends(get_state)):
+    c = st.server_conn
+    if c:
+        c.writer.write(b"messa" + struct.pack("!I", len(input.value)) + input.value.encode("utf-8"))
+        print("sent")
+        return {"status": "msg sent"}
+    return {"status": "not running"}
 
 @router.post("/sdsettings")
 async def set_img2img(p: Img2ImgParams, st: ServerState = Depends(get_state)):

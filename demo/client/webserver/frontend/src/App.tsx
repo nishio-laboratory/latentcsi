@@ -4,12 +4,12 @@ import IntervalSlider from "./components/IntervalSlider";
 import LearningRateControl from "./components/LearningRateControl";
 import ControlButtons from "./components/ControlButtons";
 import { SDSettings } from "./components/SDSettings";
+import MessageBox from "./components/MessageBox";
 
 function App() {
   const [predImageSrc, setPredImageSrc] = useState<string>("");
   const [trueImageSrc, setTrueImageSrc] = useState<string>("");
   const [intervalValue, setIntervalValue] = useState<number>(0.33);
-  const [lrValue, setLrValue] = useState<string>("");
   const [showTrue, setShowTrue] = useState<boolean>(false);
   const ws = useRef<WebSocket | null>(null);
 
@@ -42,17 +42,6 @@ function App() {
     });
   };
 
-  const handleLrChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setLrValue(e.target.value);
-  };
-
-  const handleLrSubmit = () => {
-    fetch("/control/lr", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ value: parseFloat(lrValue) }),
-    });
-  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center">
@@ -88,11 +77,7 @@ function App() {
         handleSliderChange={handleSliderChange}
       />
 
-      <LearningRateControl
-        lrValue={lrValue}
-        handleLrChange={handleLrChange}
-        handleLrSubmit={handleLrSubmit}
-      />
+      <MessageBox/>
 
       <SDSettings />
     </div>

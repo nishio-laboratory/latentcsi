@@ -59,6 +59,9 @@ class SliderInput(BaseModel):
 class LRInput(BaseModel):
     value: PositiveFloat
 
+class MsgInput(BaseModel):
+    value: str
+
 
 def get_state(request: Request) -> ServerState:
     return request.app.state.state
