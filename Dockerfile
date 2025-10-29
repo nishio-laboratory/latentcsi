@@ -13,7 +13,8 @@ RUN apt install -y bash \
     libgl1 \
     python3.11 \
     python3-pip \
-    fish
+    fish \
+    tmux
 
 # pre-install the heavy dependencies (these can later be overridden by the deps from setup.py)
 RUN python3.11 -m pip install --no-cache-dir --upgrade pip uv && \
@@ -33,7 +34,10 @@ RUN python3.11 -m pip install --no-cache-dir --upgrade pip uv && \
     matplotlib \
     brisque \
     torchmetrics[image] \
-    construct
+    construct \
+    uvicorn[standard] \
+    fastapi[standard]
+
 
 WORKDIR /workspace
 CMD ["/bin/bash"]
