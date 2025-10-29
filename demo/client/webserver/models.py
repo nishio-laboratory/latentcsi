@@ -1,10 +1,16 @@
+import logging
+from asyncio import Event, StreamReader, StreamWriter
+from typing import Annotated, Any, Optional
 from fastapi import Request
 from pydantic import BaseModel, PositiveFloat, confloat
-from asyncio import StreamReader, StreamWriter, Event
-from typing import Optional, Annotated
+
 from diffusers import AutoencoderTiny, StableDiffusionImg2ImgPipeline
 from demo.client.utils import DummyImageProcessor
 import torch
+
+from demo.server.protocol import InferLastReq, SDParams
+
+logger = logging.getLogger(__name__)
 
 
 class Connection:
@@ -14,7 +20,10 @@ class Connection:
 
     async def close(self):
         self.writer.close()
-        await self.writer.wait_closed()
+        try:
+            await self.writer.wait_closed()
+        except Exception as exc:  # pragma: no cover - best-effort cleanup
+            logger.debug("Ignoring transport close error: %s", exc)
 
 
 class Img2ImgParams(BaseModel):
@@ -24,37 +33,44 @@ class Img2ImgParams(BaseModel):
     strength: Annotated[float, confloat(gt=0, le=1.0)]
     cfg: float
 
+    @classmethod
+    def from_construct(cls, s: Any) -> 'Img2ImgParams':
+        return cls(
+            enabled = True,
+            prompt = s.prompt,
+            negativePrompt = s.neg_prompt,
+            strength = s.strength,
+            cfg = s.cfg
+        )
+    def to_construct_d(self) -> dict:
+        if not self.enabled or self.prompt == "":
+            return {"decode": True, "apply_sd": False}
+        return {"decode": True,
+           "apply_sd": True,
+           "sd_params": {
+               "prompt": self.prompt,
+               "neg_prompt": self.negativePrompt,
+               "strength": self.strength,
+               "cfg": self.cfg
+           }}
+
+
 
 class ServerState:
     def __init__(self):
         self.server_conn: Optional[Connection] = None
         self.sensor_conn: Optional[Connection] = None
-        # self.vae = AutoencoderTiny.from_pretrained(
-        #     "madebyollin/taesd", torch_dtype=torch.half
-        # ).to("cuda")
-        # self.sd = StableDiffusionImg2ImgPipeline.from_pretrained(
-        #     "stable-diffusion-v1-5/stable-diffusion-v1-5",
-        #     torch_dtype=torch.half,
-        # ).to("cuda")
-
-        # self.sd.safety_checker = None
-        # self.sd.image_processor = DummyImageProcessor()
-        # self.sd.vae = self.vae
-
         self.sd_settings = Img2ImgParams(
             enabled=False, prompt="", negativePrompt="", strength=0.55, cfg=7
         )
-
         self.interval: float = 0.33
         self.use_sd_post: bool = False
         self.running: bool = False
         self.start_event = Event()
         self.shutdown_event = Event()
 
-
 class SliderInput(BaseModel):
     value: Annotated[float, confloat(gt=0, le=1.0)]
-
 
 class LRInput(BaseModel):
     value: PositiveFloat

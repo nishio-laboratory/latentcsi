@@ -1,24 +1,65 @@
-from demo.client.webserver.models import *
-from demo.client.webserver import control
-from fastapi.staticfiles import StaticFiles
-import struct
-import json
-import time
-import numpy as np
-from PIL import Image
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
-import base64
-from io import BytesIO
 import asyncio
+import base64
+import json
+import logging
+import struct
+from dataclasses import asdict, dataclass
+from io import BytesIO
+from typing import Literal, Union
+
+import numpy as np
 import torch
-from torchvision.transforms.functional import to_pil_image
+from PIL import Image
+from fastapi import APIRouter, WebSocket
 from starlette.endpoints import WebSocketEndpoint
-from demo.server.protocol import InferLastReq, InferReq
+
+from demo.client.webserver.models import *
+from demo.server.protocol import InferLastReq, SDParams, StatusResp
+from demo.server.trainer_base import TrainerState
 
 router = APIRouter()
-clients: set[WebSocket] = set()
-
 LATENT_SHAPE = (1, 4, 64, 64)
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class ImageMessage:
+    type: Literal["image"]
+    channel: Literal["pred", "true"]
+    img: str
+
+
+@dataclass(slots=True)
+class TrainerStatusMessage:
+    type: Literal["trainer_status"]
+    status: TrainerState
+
+
+ConnectionScope = Literal["frontend", "server"]
+
+
+@dataclass(slots=True)
+class ConnectionStateMessage:
+    type: Literal["connection_state"]
+    scope: ConnectionScope
+    state: Literal["connecting", "connected", "disconnected", "error"]
+    detail: str | None = None
+
+
+@dataclass(slots=True)
+class ErrorMessage:
+    type: Literal["error"]
+    message: str
+    detail: str | None = None
+
+
+WebsocketPayload = Union[
+    ImageMessage, TrainerStatusMessage, ConnectionStateMessage, ErrorMessage
+]
+
+
+async def send_payload(ws: WebSocket, payload: WebsocketPayload) -> None:
+    await ws.send_text(json.dumps(asdict(payload)))
 
 
 def latent_to_tensor(latent_bytes, use_sd_post):
@@ -61,8 +102,8 @@ async def get_jpg_csi(sensor_conn: Connection):
     return img, csi
 
 
-async def get_jpg(server_conn: Connection):
-    packet = InferLastReq.build(dict(decode=True, apply_sd=False))
+async def get_jpg(server_conn: Connection, sd_settings: Img2ImgParams):
+    packet = InferLastReq.build(sd_settings.to_construct_d())
     server_conn.writer.write(b"itrai")
     server_conn.writer.write(len(packet).to_bytes(4, "big") + packet)
     await server_conn.writer.drain()
@@ -71,6 +112,13 @@ async def get_jpg(server_conn: Connection):
     buf = BytesIO(await server_conn.reader.readexactly(l_i))
     img = Image.open(buf)
     return img
+
+async def get_status(server_conn: Connection) -> TrainerState:
+    server_conn.writer.write(b"state")
+    await server_conn.writer.drain()
+    l_o = struct.unpack("!I", await server_conn.reader.readexactly(4))[0]
+    packet = StatusResp.parse(await server_conn.reader.readexactly(l_o))
+    return TrainerState(**{k: v for k, v in packet.items() if k != "_io"})
 
 
 def encode_img(img) -> str:
@@ -84,50 +132,143 @@ class ImageEndpoint(WebSocketEndpoint):
     async def on_connect(self, websocket: WebSocket) -> None:
         self.st: ServerState = websocket.app.state.state
         await websocket.accept()
+        await send_payload(
+            websocket,
+            ConnectionStateMessage(
+                type="connection_state", scope="frontend", state="connected"
+            ),
+        )
         await self.send_task(websocket)
 
     async def send_task(self, ws: WebSocket):
         while True:
+            if self.st.shutdown_event.is_set():
+                return
+
             await self.st.start_event.wait()
-            while self.st.running and self.st.server_conn:
-                # print("Entered main loop!")
-                # jpg, csi = await get_jpg_csi(self.st.sensor_conn)
-                # pred = await infer(self.st.server_conn, csi, self.st.use_sd_post)
-                pil_img = await get_jpg(self.st.server_conn)
-                # pred = pred.half().cuda()
 
-                # with torch.no_grad():
-                #     if self.st.sd_settings.enabled and self.st.sd_settings.prompt != "":
-                #         img_tensor = self.st.sd(
-                #             prompt=self.st.sd_settings.prompt,
-                #             image=pred,
-                #             strength=self.st.sd_settings.strength,
-                #             guidance_scale=self.st.sd_settings.cfg
-                #         ).images[0].cpu()
-                #     else:
-                #         img_tensor = self.st.vae.decode(pred).sample.squeeze().cpu()
+            if self.st.shutdown_event.is_set():
+                return
 
-                # if self.st.use_sd_post:
-                #     img_tensor = (img_tensor + 1) / 2
-                # pil_img = to_pil_image(img_tensor.clip(0, 1))
+            await send_payload(
+                ws,
+                ConnectionStateMessage(
+                    type="connection_state", scope="server", state="connecting"
+                ),
+            )
 
-                # pil_img.save(f"example_images/predicted_{i}.png")
-                # jpg.save(f"example_images/real_{i}.png")
-                await ws.send_text(
-                    json.dumps({"stream": "pred", "img": encode_img(pil_img)})
-                )
-                # await ws.send_text(
-                #     json.dumps(
-                #         {
-                #             "stream": "true",
-                #             "img": encode_img(jpg)
-                #         }
-                #     )
-                # )
-                await asyncio.sleep(self.st.interval)
-            self.st.start_event.clear()
+            try:
+                await self._stream_predictions(ws)
+            finally:
+                self.st.start_event.clear()
 
     async def on_disconnect(
         self, websocket: WebSocket, close_code: int
     ) -> None:
         pass
+
+    async def _stream_predictions(self, ws: WebSocket) -> None:
+        state = self.st
+        conn = state.server_conn
+
+        if conn is None:
+            await send_payload(
+                ws,
+                ConnectionStateMessage(
+                    type="connection_state",
+                    scope="server",
+                    state="error",
+                    detail="Server connection unavailable.",
+                ),
+            )
+            return
+
+        await send_payload(
+            ws,
+            ConnectionStateMessage(
+                type="connection_state", scope="server", state="connected"
+            ),
+        )
+
+        final_state = ConnectionStateMessage(
+            type="connection_state", scope="server", state="disconnected"
+        )
+
+        try:
+            while state.running and state.server_conn is conn:
+                try:
+                    pil_img = await get_jpg(conn, state.sd_settings)
+                    status = await get_status(conn)
+                except asyncio.CancelledError:
+                    raise
+                except (
+                    ConnectionError,
+                    asyncio.IncompleteReadError,
+                    OSError,
+                ) as exc:
+                    logger.warning("Connection dropped: %s", exc)
+                    final_state = ConnectionStateMessage(
+                        type="connection_state",
+                        scope="server",
+                        state="disconnected",
+                        detail=str(exc),
+                    )
+                    await self._handle_connection_drop()
+                    break
+                except Exception as exc:  # pragma: no cover - defensive
+                    logger.exception("Unexpected streaming failure")
+                    await send_payload(
+                        ws,
+                        ErrorMessage(
+                            type="error",
+                            message="Unexpected streaming failure.",
+                            detail=str(exc),
+                        ),
+                    )
+                    final_state = ConnectionStateMessage(
+                        type="connection_state",
+                        scope="server",
+                        state="error",
+                        detail="Unexpected streaming failure.",
+                    )
+                    await self._handle_connection_drop()
+                    break
+                else:
+                    await send_payload(
+                        ws,
+                        ImageMessage(
+                            type="image",
+                            channel="pred",
+                            img=encode_img(pil_img),
+                        ),
+                    )
+                    await send_payload(
+                        ws,
+                        TrainerStatusMessage(
+                            type="trainer_status",
+                            status=status,
+                        ),
+                    )
+                await asyncio.sleep(state.interval)
+        finally:
+            await send_payload(ws, final_state)
+
+    async def _handle_connection_drop(self) -> None:
+        state = self.st
+        state.running = False
+
+        conn = state.server_conn
+        if conn is not None:
+            try:
+                await conn.close()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("Ignoring server connection close error: %s", exc)
+        state.server_conn = None
+
+        sensor_conn = state.sensor_conn
+        if sensor_conn is not None:
+            try:
+                await sensor_conn.close()
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.debug("Ignoring sensor connection close error: %s", exc)
+        state.sensor_conn = None
