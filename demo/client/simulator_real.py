@@ -22,8 +22,8 @@ with socket.create_connection((HOST, PORT)) as sock:
                 output_shape={"dims": list(l.shape)},
                 batch_size=16,
                 input_bytes=c.numpy().tobytes(),
-                output_bytes=l.numpy().tobytes()
+                output_bytes=l.numpy().tobytes(),
             )
         )
         sock.sendall(b"train" + len(packet).to_bytes(4, "big") + packet)
-        time.sleep(1/bps)
+        time.sleep(1 / bps)

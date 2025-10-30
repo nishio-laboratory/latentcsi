@@ -3,6 +3,7 @@ from demo.server.trainer_base import TrainerBase
 from demo.server.trainers.basic import BatchReservoir, CNNDecoderTrainable
 from src.other.types import *
 
+
 class TrainerStoppable(TrainerBase):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -82,14 +83,11 @@ class TrainerStoppable(TrainerBase):
                 if not self.state.training or self.batch_reservoir.empty():
                     continue
                 loss = self.train_replay()
-                print("Train replay")
             else:
                 if self.state.training:
                     pred, loss = self.train_new()
-                    print("Train new")
                 else:
                     pred, loss = self.infer_last()
-                    print("Infer last")
                 self.latest_pred.update(pred)
 
             # print(

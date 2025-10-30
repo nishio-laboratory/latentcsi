@@ -113,6 +113,7 @@ async def get_jpg(server_conn: Connection, sd_settings: Img2ImgParams):
     img = Image.open(buf)
     return img
 
+
 async def get_status(server_conn: Connection) -> TrainerState:
     server_conn.writer.write(b"state")
     await server_conn.writer.drain()

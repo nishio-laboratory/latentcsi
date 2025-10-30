@@ -4,6 +4,7 @@ import struct
 import time
 from diffusers import AutoencoderTiny
 import torch
+import os
 import asyncio
 import torch.multiprocessing as mp
 from demo.client.webserver.models import Img2ImgParams
@@ -36,21 +37,19 @@ class TrainingServerBase:
         self.real_tensor = torch.zeros(1, 4, 64, 64)
 
         self.ae_tiny = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(
-            torch.device("cuda:1")
+            torch.device("cuda:0")
         )
         # self.sd = StableDiffusionImg2ImgPipeline.from_pretrained("/data/sd/sd-v1-5").to(
         #     torch.device("cuda:1")
         # )
-        self.sd = StableDiffusionImg2ImgPipeline.from_pretrained("stable-diffusion-v1-5/stable-diffusion-v1-5").to(
-            torch.device("cuda:1")
-        )
+        self.sd = StableDiffusionImg2ImgPipeline.from_pretrained(
+            "stable-diffusion-v1-5/stable-diffusion-v1-5"
+        ).to(torch.device("cuda:0"))
         self.sd.vae = self.ae_tiny
         self.trainer_class = trainer
 
     async def train(self, reader, writer):
-        req_len = struct.unpack("!I", await reader.readexactly(4))[
-            0
-        ]
+        req_len = struct.unpack("!I", await reader.readexactly(4))[0]
         packet = Data.parse(await reader.readexactly(req_len))
         inputs = BatchCSI(
             torch.frombuffer(
@@ -68,18 +67,20 @@ class TrainingServerBase:
         self.data_queue.put_nowait(Batch(inputs, outputs))
 
     async def infer_last(self, reader, writer):
-        req_len = struct.unpack("!I", await reader.readexactly(4))[
-            0
-        ]
+        req_len = struct.unpack("!I", await reader.readexactly(4))[0]
         req = InferLastReq.parse(await reader.readexactly(req_len))
         if self.shared.state.batches_trained == 0:
             img = Image.new("RGB", (512, 512), (0, 0, 255))
         else:
             latent_tensor = PredLatent(
-                    (await asyncio.to_thread(self.out_tensor.get_copy)).to(1)
+                (await asyncio.to_thread(self.out_tensor.get_copy)).to(0)
             )
             if req.apply_sd and req.sd_params.prompt != "":
-                img = apply_sd(latent_tensor, self.sd, Img2ImgParams.from_construct(req.sd_params))
+                img = apply_sd(
+                    latent_tensor,
+                    self.sd,
+                    Img2ImgParams.from_construct(req.sd_params),
+                )
             else:
                 img = decode_latent_to_image(latent_tensor, self.ae_tiny)
         img_bytes = pil_image_to_bytes(img)
@@ -110,9 +111,9 @@ class TrainingServerBase:
                         )
                         inf_elapsed_times = []
                 elif header == b"messa":
-                    req_len = struct.unpack(
-                        "!I", await reader.readexactly(4)
-                    )[0]
+                    req_len = struct.unpack("!I", await reader.readexactly(4))[
+                        0
+                    ]
                     msg_str = (await reader.readexactly(req_len)).decode(
                         "utf-8"
                     )
@@ -162,9 +163,8 @@ class TrainingServerBase:
 
 
 async def main():
-    srv = TrainingServerBase(
-        host="0.0.0.0", port=9999, trainer=TrainerStoppable
-    )
+    host = os.getenv("SERVER_HOST", "0.0.0.0")
+    srv = TrainingServerBase(host=host, port=9000, trainer=TrainerStoppable)
     await srv.start()
 
 

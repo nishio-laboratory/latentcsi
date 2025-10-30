@@ -3,7 +3,6 @@ from demo.client.webserver.models import *
 import asyncio
 import struct
 
-SERVER_HOST, SERVER_PORT = "192.168.1.221", 9999
 SENSOR_HOST, SENSOR_PORT = "localhost", 10000
 router = APIRouter(prefix="/control")
 
@@ -15,7 +14,7 @@ async def start(st: ServerState = Depends(get_state)):
         return {"status": "already running"}
     try:
         st.server_conn = Connection(
-            *await asyncio.open_connection(SERVER_HOST, SERVER_PORT)
+            *await asyncio.open_connection(st.server_addr, 9000)
         )
     except Exception as e:
         return {"status": "error", "detail": str(e)}
@@ -61,14 +60,20 @@ async def update_lr(input: LRInput, st: ServerState = Depends(get_state)):
         return {"status": "lr sent"}
     return {"status": "not running"}
 
+
 @router.post("/msg")
 async def send_msg(input: MsgInput, st: ServerState = Depends(get_state)):
     c = st.server_conn
     if c:
-        c.writer.write(b"messa" + struct.pack("!I", len(input.value)) + input.value.encode("utf-8"))
+        c.writer.write(
+            b"messa"
+            + struct.pack("!I", len(input.value))
+            + input.value.encode("utf-8")
+        )
         print("sent")
         return {"status": "msg sent"}
     return {"status": "not running"}
+
 
 @router.post("/sdsettings")
 async def set_img2img(p: Img2ImgParams, st: ServerState = Depends(get_state)):

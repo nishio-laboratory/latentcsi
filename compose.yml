@@ -1,6 +1,6 @@
 services:
   training_server:
-    image: "csi_image"
+    image: "latentcsi"
     deploy:
       resources:
         reservations:
@@ -9,11 +9,29 @@ services:
               count: "all"
               capabilities: [gpu]
     volumes:
-      - "/home/esrh/csi_to_image_2:/workspace"
-      - "/mnt/nas/esrh/csi_image_data/sd:/sd"
+      - ".:/workspace"
+    network_mode: host
     ports:
-      - "9999:9999"
-    command: "python3 -m demo.server.server"
+      - "9000:9000"
+    command: "python3.11 -m demo.server.server"
+    stdin_open: true
+    tty: true
+
+  client_server:
+    image: "latentcsi"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: [gpu]
+    volumes:
+      - ".:/workspace"
+    network_mode: host
+    ports:
+      - "8000:8000"
+    command: "python3.11 -m demo.client.webserver.main"
     stdin_open: true
     tty: true
 

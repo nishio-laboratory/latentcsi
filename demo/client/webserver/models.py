@@ -1,4 +1,5 @@
 import logging
+import os
 from asyncio import Event, StreamReader, StreamWriter
 from typing import Annotated, Any, Optional
 from fastapi import Request
@@ -34,30 +35,34 @@ class Img2ImgParams(BaseModel):
     cfg: float
 
     @classmethod
-    def from_construct(cls, s: Any) -> 'Img2ImgParams':
+    def from_construct(cls, s: Any) -> "Img2ImgParams":
         return cls(
-            enabled = True,
-            prompt = s.prompt,
-            negativePrompt = s.neg_prompt,
-            strength = s.strength,
-            cfg = s.cfg
+            enabled=True,
+            prompt=s.prompt,
+            negativePrompt=s.neg_prompt,
+            strength=s.strength,
+            cfg=s.cfg,
         )
+
     def to_construct_d(self) -> dict:
         if not self.enabled or self.prompt == "":
             return {"decode": True, "apply_sd": False}
-        return {"decode": True,
-           "apply_sd": True,
-           "sd_params": {
-               "prompt": self.prompt,
-               "neg_prompt": self.negativePrompt,
-               "strength": self.strength,
-               "cfg": self.cfg
-           }}
-
+        return {
+            "decode": True,
+            "apply_sd": True,
+            "sd_params": {
+                "prompt": self.prompt,
+                "neg_prompt": self.negativePrompt,
+                "strength": self.strength,
+                "cfg": self.cfg,
+            },
+        }
 
 
 class ServerState:
     def __init__(self):
+        self.server_addr = os.getenv("SERVER_ADDR", "0.0.0.0")
+        self.sensor_addr = os.getenv("SENSOR_ADDR", "0.0.0.0")
         self.server_conn: Optional[Connection] = None
         self.sensor_conn: Optional[Connection] = None
         self.sd_settings = Img2ImgParams(
@@ -69,11 +74,14 @@ class ServerState:
         self.start_event = Event()
         self.shutdown_event = Event()
 
+
 class SliderInput(BaseModel):
     value: Annotated[float, confloat(gt=0, le=1.0)]
 
+
 class LRInput(BaseModel):
     value: PositiveFloat
+
 
 class MsgInput(BaseModel):
     value: str

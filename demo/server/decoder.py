@@ -1,6 +1,8 @@
 from typing import cast
 from diffusers import StableDiffusionImg2ImgPipeline, AutoencoderTiny
-from diffusers.pipelines.stable_diffusion.pipeline_output import StableDiffusionPipelineOutput
+from diffusers.pipelines.stable_diffusion.pipeline_output import (
+    StableDiffusionPipelineOutput,
+)
 import torch
 from PIL.Image import Image as ImageType
 from torchvision.transforms.functional import to_pil_image
@@ -17,13 +19,16 @@ def apply_sd(
 ) -> ImageType:
     sd.safety_checker = None
     sd.image_processor = DummyImageProcessor()
-    out = cast(torch.Tensor, sd(
-        image=latent,
-        prompt=sd_params.prompt,
-        neg_prompt=sd_params.negativePrompt,
-        strength=sd_params.strength,
-        guidance_scale=sd_params.cfg,
-    ).images[0])  # dummy image processor gives [3, 512, 512]
+    out = cast(
+        torch.Tensor,
+        sd(
+            image=latent,
+            prompt=sd_params.prompt,
+            neg_prompt=sd_params.negativePrompt,
+            strength=sd_params.strength,
+            guidance_scale=sd_params.cfg,
+        ).images[0],
+    )  # dummy image processor gives [3, 512, 512]
     return to_pil_image(out.clip(0, 1))
 
 
@@ -31,7 +36,7 @@ def apply_sd_lat(
     latent,
     sd: StableDiffusionImg2ImgPipeline,
     sd_params: Img2ImgParams,
-    use_sd_post: bool
+    use_sd_post: bool,
 ) -> torch.Tensor:
     sd.safety_checker = None
 
@@ -42,7 +47,7 @@ def apply_sd_lat(
             neg_prompt=sd_params.negativePrompt,
             strength=sd_params.strength,
             guidance_scale=sd_params.cfg,
-            output_type="latent"
+            output_type="latent",
         )
         .images[0]
         .cpu()

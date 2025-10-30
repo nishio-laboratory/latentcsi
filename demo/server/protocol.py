@@ -70,5 +70,5 @@ StatusResp = Struct(
     "training" / Flag,
     "recording" / Flag,
     "reservoir_size" / Int,
-    "batches_trained" / Int
+    "batches_trained" / Int,
 )

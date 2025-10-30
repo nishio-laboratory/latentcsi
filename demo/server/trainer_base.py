@@ -5,6 +5,7 @@ import torch.multiprocessing as mp
 from demo.server.protocol import StatusResp
 from src.other.types import *
 
+
 @dataclass
 class TrainerState:
     started: bool = False
@@ -19,7 +20,7 @@ class TrainerState:
                 "training": self.training,
                 "recording": self.recording,
                 "reservoir_size": self.reservoir_size,
-                "batches_trained": self.batches_trained
+                "batches_trained": self.batches_trained,
             }
         )
 
