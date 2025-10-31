@@ -38,6 +38,11 @@ RUN python3.11 -m pip install --no-cache-dir --upgrade pip uv && \
     uvicorn[standard] \
     fastapi[standard]
 
-
 WORKDIR /workspace
-CMD ["/bin/bash"]
+RUN python3.11 - <<'EOF'
+from diffusers import StableDiffusionImg2ImgPipeline as pipe
+import torch
+pipe.from_pretrained("stable-diffusion-v1-5/stable-diffusion-v1-5")
+EOF
+
+CMD ["/bin/fish"]
