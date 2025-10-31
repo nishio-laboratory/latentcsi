@@ -66,8 +66,6 @@ class TrainerBase(ABC):
         self.latest_pred = latest_pred
         self.device = device
 
-        self.state = TrainerState()
-
     @abstractmethod
     def main_loop(self):
         pass

@@ -1,12 +1,11 @@
+import time
 from demo.server.protocol import StatusResp
-from demo.server.trainer_base import TrainerBase
+from demo.server.trainer_base import TrainerBase, TrainerState
 from demo.server.trainers.basic import BatchReservoir, CNNDecoderTrainable
 from src.other.types import *
 
-
 class TrainerStoppable(TrainerBase):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def effectful_init(self):
         self.model = CNNDecoderTrainable(
             input_dim=1992,
             base_channels=128,
@@ -15,8 +14,12 @@ class TrainerStoppable(TrainerBase):
         self.batch_reservoir = BatchReservoir(
             2000, replace_rate=1, uniform=False
         )
-        print("Train process ready!")
-        self.state.started = True
+        self.state = TrainerState()
+        print("Train process started!")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.effectful_init()
         self.main_loop()
 
     def train_new(self) -> tuple[PredLatent, float]:
@@ -57,22 +60,20 @@ class TrainerStoppable(TrainerBase):
         match msg:
             case "start_rec":
                 self.state.recording = True
-                print("Set recording to true")
             case "stop_rec":
                 self.state.recording = False
-                print("Set recording to false")
             case "start_train":
                 self.state.training = True
-                print("Set training to true")
             case "stop_train":
                 self.state.training = False
-                print("Set training to false")
             case "reset":
-                raise NotImplementedError()
+                self.effectful_init()
             case ("chglr", new_lr):
-                raise NotImplementedError()
+                for param_group in self.model.optimizer.param_groups:
+                    param_group["lr"] = new_lr
 
     def main_loop(self):
+        elapsed_new = []
         while True:
             self.shared.state = self.state
             if not self.message_queue.empty():
@@ -85,7 +86,12 @@ class TrainerStoppable(TrainerBase):
                 loss = self.train_replay()
             else:
                 if self.state.training:
+                    now = time.time()
                     pred, loss = self.train_new()
+                    elapsed_new.append(time.time() - now)
+                    if self.state.batches_trained % 10 == 0:
+                        print(f"Train_new over 10 batches: {sum(elapsed_new)/10}")
+                        elapsed_new = []
                 else:
                     pred, loss = self.infer_last()
                 self.latest_pred.update(pred)
