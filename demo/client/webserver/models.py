@@ -76,7 +76,7 @@ class ServerState:
 
 
 class SliderInput(BaseModel):
-    value: Annotated[float, confloat(gt=0, le=1.0)]
+    value: Annotated[float, confloat(ge=0, le=1.0)]
 
 
 class LRInput(BaseModel):

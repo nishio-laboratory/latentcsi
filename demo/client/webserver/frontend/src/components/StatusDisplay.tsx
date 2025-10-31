@@ -1,4 +1,3 @@
-
 export type TrainerState = {
   started: boolean;
   batches_trained: number;
@@ -13,10 +12,12 @@ type StatusDisplayProps = {
 
 function StatusDisplay({ state }: StatusDisplayProps) {
   return (
-    <div className="mt-6 w-full max-w-md rounded border border-gray-300 bg-white/80 p-4 shadow">
+    <div className="w-60 flex-shrink-0 rounded border border-gray-300 bg-white/80 p-4 shadow">
       <h2 className="text-lg font-semibold text-gray-800">Trainer Status</h2>
       {!state ? (
-        <p className="mt-2 text-sm text-gray-500">Waiting for trainer status…</p>
+        <p className="mt-2 text-sm text-gray-500">
+          Waiting for trainer status…
+        </p>
       ) : (
         <dl className="mt-2 space-y-1 text-sm text-gray-700">
           <div className="flex justify-between">
@@ -25,7 +26,7 @@ function StatusDisplay({ state }: StatusDisplayProps) {
           </div>
           <div className="flex justify-between">
             <dt>Training:</dt>
-            <dd className="font-medium">{state.training ? "Active" : "Paused"}</dd>
+            <dd className="font-medium">{state.training ? "On" : "Off"}</dd>
           </div>
           <div className="flex justify-between">
             <dt>Recording:</dt>

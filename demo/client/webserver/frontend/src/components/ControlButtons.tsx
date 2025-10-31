@@ -3,7 +3,7 @@ function ControlButtons() {
     fetch(endpoint, { method: "POST" });
   };
   return (
-    <div className="flex mt-8">
+    <div className="flex">
       <button
         onClick={() => sendCommand("/control/start")}
         className="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-l-md"

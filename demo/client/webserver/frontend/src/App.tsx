@@ -22,7 +22,11 @@ type TrainerStatusMessage = {
   status: TrainerState;
 };
 
-type ConnectionStateKind = "connecting" | "connected" | "disconnected" | "error";
+type ConnectionStateKind =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "error";
 type ConnectionScope = "frontend" | "server";
 
 type ConnectionStateMessage = {
@@ -76,13 +80,8 @@ function parseServerMessage(raw: unknown): ServerMessage | null {
         return null;
       }
       const statusRaw = status as Record<string, unknown>;
-      const {
-        started,
-        training,
-        recording,
-        batches_trained,
-        reservoir_size,
-      } = statusRaw;
+      const { started, training, recording, batches_trained, reservoir_size } =
+        statusRaw;
       if (
         typeof started === "boolean" &&
         typeof training === "boolean" &&
@@ -123,8 +122,8 @@ function parseServerMessage(raw: unknown): ServerMessage | null {
           typeof detail === "string"
             ? detail
             : detail === null
-            ? null
-            : undefined;
+              ? null
+              : undefined;
         return detailValue === undefined
           ? { type: "connection_state", scope, state }
           : { type: "connection_state", scope, state, detail: detailValue };
@@ -144,8 +143,8 @@ function parseServerMessage(raw: unknown): ServerMessage | null {
         typeof detail === "string"
           ? detail
           : detail === null
-          ? null
-          : undefined;
+            ? null
+            : undefined;
       return detailValue === undefined
         ? { type: "error", message }
         : { type: "error", message, detail: detailValue };
@@ -159,14 +158,13 @@ function parseServerMessage(raw: unknown): ServerMessage | null {
 function App() {
   const [predImageSrc, setPredImageSrc] = useState<string>("");
   const [trueImageSrc, setTrueImageSrc] = useState<string>("");
-  const [intervalValue, setIntervalValue] = useState<number>(0.33);
+  const [intervalValue, setIntervalValue] = useState<number>(0.2);
   const [showTrue, setShowTrue] = useState<boolean>(false);
   const [trainerState, setTrainerState] = useState<TrainerState | null>(null);
   const [frontendStatus, setFrontendStatus] =
     useState<ConnectionStateKind>("connecting");
   const [frontendDetail, setFrontendDetail] = useState<string | null>(null);
-  const [serverStatus, setServerStatus] =
-    useState<ConnectionStatus>("idle");
+  const [serverStatus, setServerStatus] = useState<ConnectionStatus>("idle");
   const [serverDetail, setServerDetail] = useState<string | null>(null);
   const ws = useRef<WebSocket | null>(null);
 
@@ -241,10 +239,7 @@ function App() {
             if (parsed.scope === "server") {
               setServerStatus(parsed.state);
               setServerDetail(parsed.detail ?? null);
-              if (
-                parsed.state === "disconnected" ||
-                parsed.state === "error"
-              ) {
+              if (parsed.state === "disconnected" || parsed.state === "error") {
                 setPredImageSrc("");
                 setTrueImageSrc("");
                 setTrainerState(null);
@@ -301,16 +296,16 @@ function App() {
     status === "connected"
       ? "text-green-600"
       : status === "error"
-      ? "text-red-600"
-      : status === "idle"
-      ? "text-gray-600"
-      : "text-amber-600";
+        ? "text-red-600"
+        : status === "idle"
+          ? "text-gray-600"
+          : "text-amber-600";
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center">
+    <div className="min-h-screen flex flex-col items-center justify-center space-y-3">
       <h1 className="text-4xl font-bold">Live Viewer</h1>
 
-      <div className="mt-2 text-sm text-gray-600 space-y-1 text-center">
+      <div className="text-sm text-gray-600 space-y-1 text-center">
         <div>
           Frontend → Backend:{" "}
           <span className={`font-medium ${statusClass(frontendStatus)}`}>
@@ -327,40 +322,43 @@ function App() {
         </div>
       </div>
 
-      <div className="mt-6 flex items-center space-x-4">
-        <ImageDisplay imageSrc={predImageSrc} altText="Predicted" size={256} />
-        {showTrue && (
-          <ImageDisplay
-            imageSrc={trueImageSrc}
-            altText="Ground truth"
-            size={256}
-          />
-        )}
+      <div className="grid w-full max-w-5xl grid-cols-[1fr_auto_1fr] items-start gap-2">
+        <div className="justify-self-end">
+          <StatusDisplay state={trainerState} />
+        </div>
+        <div className="flex flex-col items-center space-y-3">
+          <div className="flex items-center gap-2">
+            <ImageDisplay
+              imageSrc={predImageSrc}
+              altText="Predicted"
+              size={256}
+            />
+            {showTrue && (
+              <ImageDisplay
+                imageSrc={trueImageSrc}
+                altText="Ground truth"
+                size={256}
+              />
+            )}
+          </div>
+        </div>
       </div>
-      <div className="mt-10">
-        <label className="inline-flex items-center space-x-2">
-          <input
-            type="checkbox"
-            checked={showTrue}
-            onChange={() => setShowTrue((current) => !current)}
-            className="peer sr-only"
-          />
-          <div className="relative h-6 w-11 rounded-full bg-gray-200 before:absolute before:left-[2px] before:top-[2px] before:h-5 before:w-5 before:rounded-full before:bg-white before:transition-transform peer-checked:bg-blue-600 peer-checked:before:translate-x-full" />
-          <span className="text-sm font-medium">Show ground truth</span>
-        </label>
-      </div>
-
+      <label className="inline-flex items-center space-x-2">
+        <input
+          type="checkbox"
+          checked={showTrue}
+          onChange={() => setShowTrue((current) => !current)}
+          className="peer sr-only"
+        />
+        <div className="relative h-6 w-11 rounded-full bg-gray-200 before:absolute before:left-[2px] before:top-[2px] before:h-5 before:w-5 before:rounded-full before:bg-white before:transition-transform peer-checked:bg-blue-600 peer-checked:before:translate-x-full" />
+        <span className="text-sm font-medium">Show ground truth</span>
+      </label>
       <ControlButtons />
-
       <IntervalSlider
         intervalValue={intervalValue}
         handleSliderChange={handleSliderChange}
       />
-
       <MessageBox />
-
-      <StatusDisplay state={trainerState} />
-
       <SDSettings />
     </div>
   );

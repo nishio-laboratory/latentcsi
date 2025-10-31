@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState } from "react";
 
 interface Img2ImgParams {
   enabled: boolean;
@@ -11,8 +11,8 @@ interface Img2ImgParams {
 export function SDSettings() {
   const [params, setParams] = useState<Img2ImgParams>({
     enabled: false,
-    prompt: '',
-    negativePrompt: '',
+    prompt: "",
+    negativePrompt: "",
     strength: 0.55,
     cfg: 7,
   });
@@ -22,18 +22,18 @@ export function SDSettings() {
 
   const handleChange = <K extends keyof Img2ImgParams>(
     key: K,
-    value: Img2ImgParams[K]
+    value: Img2ImgParams[K],
   ) => {
     const updated = { ...params, [key]: value };
     setParams(updated);
-    if (key !== 'enabled') submit(updated);
+    if (key !== "enabled") submit(updated);
   };
 
   const submit = async (payload: Img2ImgParams) => {
     console.log(JSON.stringify(payload));
-    await fetch('/control/sdsettings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await fetch("/control/sdsettings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
   };
@@ -41,14 +41,14 @@ export function SDSettings() {
   return (
     <div className="relative pt-2 px-2 w-full max-w-md border rounded-lg mt-5">
       <button
-        aria-label={isOpen ? 'Close settings' : 'Open settings'}
-        onClick={() => setOpen(o => !o)}
+        aria-label={isOpen ? "Close settings" : "Open settings"}
+        onClick={() => setOpen((o) => !o)}
         className="absolute top-2 right-2 p-1 rounded hover:bg-gray-200"
       >
         {/* Arrow icon */}
         <svg
           className={`w-4 h-4 transform transition-transform duration-200 ${
-            isOpen ? 'rotate-90' : 'rotate-0'
+            isOpen ? "rotate-90" : "rotate-0"
           }`}
           fill="none"
           stroke="currentColor"
@@ -69,9 +69,9 @@ export function SDSettings() {
           type="checkbox"
           className="sr-only peer"
           checked={params.enabled}
-          onChange={e => {
+          onChange={(e) => {
             const enabled = e.target.checked;
-            handleChange('enabled', enabled);
+            handleChange("enabled", enabled);
             if (enabled) submit({ ...params, enabled });
           }}
         />
@@ -88,7 +88,7 @@ export function SDSettings() {
             <input
               type="text"
               value={params.prompt}
-              onChange={e => handleChange('prompt', e.target.value)}
+              onChange={(e) => handleChange("prompt", e.target.value)}
               className="mt-1 block w-full border rounded p-2"
             />
           </div>
@@ -98,7 +98,7 @@ export function SDSettings() {
             <input
               type="text"
               value={params.negativePrompt}
-              onChange={e => handleChange('negativePrompt', e.target.value)}
+              onChange={(e) => handleChange("negativePrompt", e.target.value)}
               className="mt-1 block w-full border rounded p-2"
             />
           </div>
@@ -113,7 +113,9 @@ export function SDSettings() {
               max="1"
               step="0.01"
               value={params.strength}
-              onChange={e => handleChange('strength', parseFloat(e.target.value))}
+              onChange={(e) =>
+                handleChange("strength", parseFloat(e.target.value))
+              }
               className="w-full"
             />
           </div>
@@ -128,7 +130,7 @@ export function SDSettings() {
               max="20"
               step="0.1"
               value={params.cfg}
-              onChange={e => handleChange('cfg', parseFloat(e.target.value))}
+              onChange={(e) => handleChange("cfg", parseFloat(e.target.value))}
               className="w-full"
             />
           </div>
