@@ -3,11 +3,12 @@ import ImageDisplay from "./components/ImageDisplay";
 import IntervalSlider from "./components/IntervalSlider";
 import ControlButtons from "./components/ControlButtons";
 import { SDSettings } from "./components/SDSettings";
-import MessageBox from "./components/MessageBox";
 import StatusDisplay from "./components/StatusDisplay";
 import type { TrainerState } from "./components/StatusDisplay";
+import MessageMenu from "./components/MessageMenu";
 
 const RECONNECT_DELAY_MS = 3000;
+const IMAGE_SIZE = 375;
 
 type ImageChannel = "pred" | "true";
 
@@ -300,10 +301,9 @@ function App() {
         : status === "idle"
           ? "text-gray-600"
           : "text-amber-600";
-
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center space-y-3">
-      <h1 className="text-4xl font-bold">Live Viewer</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center space-y-2.5">
+      <h1 className="text-4xl font-bold">LatentCSI Demo Viewer</h1>
 
       <div className="text-sm text-gray-600 space-y-1 text-center">
         <div>
@@ -322,44 +322,46 @@ function App() {
         </div>
       </div>
 
-      <div className="grid w-full max-w-5xl grid-cols-[1fr_auto_1fr] items-start gap-2">
-        <div className="justify-self-end">
+      <div className="flex w-full max-w-5xl items-start justify-center gap-6">
+        <div className="flex flex-1 justify-end">
           <StatusDisplay state={trainerState} />
         </div>
-        <div className="flex flex-col items-center space-y-3">
-          <div className="flex items-center gap-2">
+        <div className="flex shrink-0 flex-col items-center gap-4">
+          <div className="flex items-center justify-center gap-4">
             <ImageDisplay
               imageSrc={predImageSrc}
               altText="Predicted"
-              size={256}
+              size={IMAGE_SIZE}
             />
             {showTrue && (
               <ImageDisplay
                 imageSrc={trueImageSrc}
                 altText="Ground truth"
-                size={256}
+                size={IMAGE_SIZE}
               />
             )}
           </div>
+          <label className="inline-flex items-center space-x-2">
+            <input
+              type="checkbox"
+              checked={showTrue}
+              onChange={() => setShowTrue((current) => !current)}
+              className="peer sr-only"
+            />
+            <div className="relative h-6 w-11 rounded-full bg-gray-200 before:absolute before:left-[2px] before:top-[2px] before:h-5 before:w-5 before:rounded-full before:bg-white before:transition-transform peer-checked:bg-blue-600 peer-checked:before:translate-x-full" />
+            <span className="text-sm font-medium">Show ground truth</span>
+          </label>
+          <ControlButtons />
+          <IntervalSlider
+            intervalValue={intervalValue}
+            handleSliderChange={handleSliderChange}
+          />
+          <SDSettings />
+        </div>
+        <div className="flex flex-1 justify-start">
+          <MessageMenu maxHeight={IMAGE_SIZE} />
         </div>
       </div>
-      <label className="inline-flex items-center space-x-2">
-        <input
-          type="checkbox"
-          checked={showTrue}
-          onChange={() => setShowTrue((current) => !current)}
-          className="peer sr-only"
-        />
-        <div className="relative h-6 w-11 rounded-full bg-gray-200 before:absolute before:left-[2px] before:top-[2px] before:h-5 before:w-5 before:rounded-full before:bg-white before:transition-transform peer-checked:bg-blue-600 peer-checked:before:translate-x-full" />
-        <span className="text-sm font-medium">Show ground truth</span>
-      </label>
-      <ControlButtons />
-      <IntervalSlider
-        intervalValue={intervalValue}
-        handleSliderChange={handleSliderChange}
-      />
-      <MessageBox />
-      <SDSettings />
     </div>
   );
 }
