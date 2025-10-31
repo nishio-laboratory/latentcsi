@@ -94,21 +94,25 @@ class TrainingServerBase:
         print(f"Client connected: {addr}")
         t, i = 0, 0
         inf_elapsed_times = []
+        train_elapsed_times = []
         try:
             while True:
                 header = await reader.readexactly(5)
                 if header == b"train":
+                    t += 1
+                    now_t = time.time()
                     await self.train(reader, writer)
+                    train_elapsed_times.append(time.time() - now_t)
+                    if t % 100 == 0:
+                        print(f"Average time to train 100 batches: {sum(train_elapsed_times)/100}")
+                        train_elapsed_times = []
                 elif header == b"itrai":
-                    now = time.time()
-                    await self.infer_last(reader, writer)
-                    elapsed = time.time() - now
-                    inf_elapsed_times.append(elapsed)
                     i += 1
-                    if i % 50 == 0:
-                        print(
-                            f"avg time to compute: {sum(inf_elapsed_times) / len(inf_elapsed_times)}"
-                        )
+                    now_i = time.time()
+                    await self.infer_last(reader, writer)
+                    inf_elapsed_times.append(time.time() - now_i)
+                    if i % 100 == 0:
+                        print(f"Average time to inf 100 samples: {sum(inf_elapsed_times)/100}")
                         inf_elapsed_times = []
                 elif header == b"messa":
                     req_len = struct.unpack("!I", await reader.readexactly(4))[
