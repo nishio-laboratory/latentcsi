@@ -58,6 +58,7 @@ class TrainerBase(ABC):
         shared: Namespace,
         latest_pred: LockedTensor,
         device: torch.device,
+        dtype: torch.dtype
     ):
         """Needs to call self.main_loop abstract method."""
         self.data_queue = data_queue
@@ -65,6 +66,7 @@ class TrainerBase(ABC):
         self.message_queue = message_queue
         self.latest_pred = latest_pred
         self.device = device
+        self.dtype = dtype
 
     @abstractmethod
     def main_loop(self):

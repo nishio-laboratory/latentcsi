@@ -52,14 +52,36 @@ class CNNDecoderTrainable(CNNDecoder):
 
 
 class BatchReservoir:
+    class _Buffer(list):
+        def __init__(self, parent: "BatchReservoir"):
+            super().__init__()
+            self._parent = parent
+
+        def append(self, batch: Batch) -> None:
+            super().append(self._parent._clone_batch(batch))
+
+        def __setitem__(self, index, batch) -> None:  # type: ignore[override]
+            if isinstance(index, slice):
+                super().__setitem__(
+                    index,
+                    [self._parent._clone_batch(b) for b in batch],
+                )
+            else:
+                super().__setitem__(index, self._parent._clone_batch(batch))
+
     def __init__(
         self, buffer_size: int, replace_rate: float = 0.5, uniform=True
     ):
         self.buffer_size = buffer_size
         self.replace_rate = replace_rate
         self.uniform = uniform
-        self.buffer: list[Batch] = []
+        self.buffer: BatchReservoir._Buffer = BatchReservoir._Buffer(self)
         self.count = 0
+
+    def _clone_batch(self, batch: Batch) -> Batch:
+        csi = BatchCSI(batch.csi.detach().clone().contiguous())
+        lat = BatchTrueLatent(batch.lat.detach().clone().contiguous())
+        return Batch(csi, lat)
 
     def add(self, batch: Batch):
         self.count += 1

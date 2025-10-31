@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import ByteString, Optional
 import struct
-import time
 from diffusers import AutoencoderTiny
+import numpy as np
 import torch
 import os
 import asyncio
@@ -21,6 +21,7 @@ class TrainingServerBase:
     def __init__(self, host: str, port: int, trainer: type[TrainerBase]):
         self.host = host
         self.port = port
+        self.dtype = torch.float32
 
         self.ctx = mp.get_context("spawn")
         self.data_queue: mp.Queue[Batch] = self.ctx.Queue(maxsize=100)
@@ -37,14 +38,15 @@ class TrainingServerBase:
         self.real_tensor = torch.zeros(1, 4, 64, 64)
 
         self.ae_tiny = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(
-            torch.device("cuda:0")
+            torch.device("cuda:0"),
+            self.dtype
         )
-        # self.sd = StableDiffusionImg2ImgPipeline.from_pretrained("/data/sd/sd-v1-5").to(
-        #     torch.device("cuda:1")
-        # )
         self.sd = StableDiffusionImg2ImgPipeline.from_pretrained(
             "stable-diffusion-v1-5/stable-diffusion-v1-5"
-        ).to(torch.device("cuda:0"))
+        ).to(
+            torch.device("cuda:0"),
+            self.dtype
+        )
         self.sd.vae = self.ae_tiny
         self.trainer_class = trainer
 
@@ -54,13 +56,13 @@ class TrainingServerBase:
         inputs = BatchCSI(
             torch.frombuffer(
                 bytearray(packet.input_bytes), dtype=torch.float32
-            ).view(packet.input_shape.dims)
+            ).clone().view(packet.input_shape.dims).cpu().to(self.dtype)
         )
 
         outputs = BatchTrueLatent(
             torch.frombuffer(
                 bytearray(packet.output_bytes), dtype=torch.float32
-            ).view(packet.output_shape.dims)
+            ).clone().view(packet.output_shape.dims).cpu().to(self.dtype)
         )
         if self.data_queue.full():
             self.data_queue.get()
@@ -73,7 +75,7 @@ class TrainingServerBase:
             img = Image.new("RGB", (512, 512), (0, 0, 255))
         else:
             latent_tensor = PredLatent(
-                (await asyncio.to_thread(self.out_tensor.get_copy)).to(0)
+                (await asyncio.to_thread(self.out_tensor.get_copy)).to(torch.device("cuda:0"), self.dtype)
             )
             if req.apply_sd and req.sd_params.prompt != "":
                 img = apply_sd(
@@ -143,6 +145,7 @@ class TrainingServerBase:
                 self.shared,
                 self.out_tensor,
                 torch.device("cuda:0"),
+                self.dtype
             ),
         )
         train_process.start()

@@ -22,7 +22,7 @@ def apply_sd(
     out = cast(
         torch.Tensor,
         sd(
-            image=latent,
+            image=latent.to(sd.device, sd.dtype),
             prompt=sd_params.prompt,
             neg_prompt=sd_params.negativePrompt,
             strength=sd_params.strength,
@@ -60,7 +60,7 @@ def apply_sd_lat(
 def decode_latent_to_image(
     latent: Latent, ae: AutoencoderTiny, scale=False
 ) -> ImageType:
-    latent_tensor = cast(torch.Tensor, latent).to(ae.device)
+    latent_tensor = cast(torch.Tensor, latent).to(device=ae.device, dtype=ae.dtype)
     # if scale:
     #     latent_tensor *= 0.18215
     out_tensor = ae.decode(latent_tensor).sample.squeeze().cpu()

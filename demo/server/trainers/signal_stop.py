@@ -10,7 +10,7 @@ class TrainerStoppable(TrainerBase):
             input_dim=1992,
             base_channels=128,
             lr=1e-4,
-        ).to(self.device)
+        ).to(device=self.device)
         self.batch_reservoir = BatchReservoir(
             2000, replace_rate=1, uniform=False
         )
@@ -32,7 +32,9 @@ class TrainerStoppable(TrainerBase):
 
         inputs = BatchCSI(batch.csi.to(self.device))
         outputs = BatchTrueLatent(batch.lat.to(self.device))
-        loss, preds = self.model.train_step(inputs, outputs)
+
+        with torch.autocast("cuda", self.dtype):
+            loss, preds = self.model.train_step(inputs, outputs)
 
         self.state.batches_trained += 1
         return (
@@ -44,14 +46,18 @@ class TrainerStoppable(TrainerBase):
         batch = self.batch_reservoir.pick()
         inputs = BatchCSI(batch.csi.to(self.device))
         outputs = BatchTrueLatent(batch.lat.to(self.device))
-        loss, _ = self.model.train_step(inputs, outputs)
+        with torch.autocast("cuda", self.dtype):
+            loss, _ = self.model.train_step(inputs, outputs)
         return float(loss.item())
 
     def infer_last(self) -> tuple[PredLatent, float]:
         batch = self.data_queue.get()
+        if self.state.recording:
+            self.batch_reservoir.add(batch)
+            self.state.reservoir_size = self.batch_reservoir.size()
         csi = CSI(batch.csi[-1].unsqueeze(0).to(self.device))
         out = CSI(batch.lat[-1].unsqueeze(0).to(self.device))
-        with self.model.as_eval(), torch.no_grad():
+        with self.model.as_eval(), torch.no_grad(), torch.autocast("cuda", self.dtype):
             p = self.model(csi)
             loss = torch.nn.functional.mse_loss(p, out).item()
         return p.cpu(), loss
@@ -73,6 +79,7 @@ class TrainerStoppable(TrainerBase):
                     param_group["lr"] = new_lr
 
     def main_loop(self):
+        self.started = True
         elapsed_new = []
         while True:
             self.shared.state = self.state
