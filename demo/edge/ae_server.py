@@ -122,7 +122,7 @@ if __name__ == "__main__":
     parser.add_argument("--port", default=8000, type=int)
     parser.add_argument(
         "--model",
-        default=Path("/trt/taesd_encoder_min4o8max16.trt"),
+        default=Path("/trt/taesd_encoder_4-16-16.trt"),
         type=Path,
     )
     args = parser.parse_args()

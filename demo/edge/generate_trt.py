@@ -107,34 +107,34 @@ def main() -> None:
         output_names=["latent"],
         dynamic_axes={"input": {0: "batch_size"}, "latent": {0: "batch_size"}},
     )
-    dec_onnx: Path = export_to_onnx(
-        ae=ae,
-        name="decoder",
-        input_tensor=dec_in,
-        input_names=["latent"],
-        output_names=["reconstruction"],
-        dynamic_axes={
-            "latent": {0: "batch_size"},
-            "reconstruction": {0: "batch_size"},
-        },
-    )
+    # dec_onnx: Path = export_to_onnx(
+    #     ae=ae,
+    #     name="decoder",
+    #     input_tensor=dec_in,
+    #     input_names=["latent"],
+    #     output_names=["reconstruction"],
+    #     dynamic_axes={
+    #         "latent": {0: "batch_size"},
+    #         "reconstruction": {0: "batch_size"},
+    #     },
+    # )
 
     build_trt_engine(
         enc_onnx,
-        "encoder",
+        f"encoder_{args.min_batch}-{args.opt_batch}-{args.max_batch}",
         (3, 512, 512),
         args.min_batch,
         args.opt_batch,
         args.max_batch,
     )
-    build_trt_engine(
-        dec_onnx,
-        "decoder",
-        (4, 64, 64),
-        args.min_batch,
-        args.opt_batch,
-        args.max_batch,
-    )
+    # build_trt_engine(
+    #     dec_onnx,
+    #     "decoder",
+    #     (4, 64, 64),
+    #     args.min_batch,
+    #     args.opt_batch,
+    #     args.max_batch,
+    # )
 
 
 if __name__ == "__main__":
