@@ -70,55 +70,61 @@ def latent_to_tensor(latent_bytes, use_sd_post):
 
 
 async def ilast(server_conn: Connection, use_sd_post: bool) -> torch.Tensor:
-    reader, writer = server_conn.reader, server_conn.writer
-    writer.write(b"ilast")
-    l_i = struct.unpack("!I", await reader.readexactly(4))[0]
-    data = await reader.readexactly(l_i)
+    async with server_conn.lock:
+        reader, writer = server_conn.reader, server_conn.writer
+        writer.write(b"ilast")
+        await writer.drain()
+        l_i = struct.unpack("!I", await reader.readexactly(4))[0]
+        data = await reader.readexactly(l_i)
     return latent_to_tensor(data, use_sd_post)
 
 
 async def infer(
     server_conn: Connection, csi: np.ndarray, use_sd_post: bool
 ) -> torch.Tensor:
-    reader, writer = server_conn.reader, server_conn.writer
-    writer.write(b"infer")
-    csi_bytes = csi.tobytes()
-    writer.write(struct.pack("!I", len(csi_bytes)) + csi_bytes)
-    await writer.drain()
-    l_i = struct.unpack("!I", await reader.readexactly(4))[0]
-    data = await reader.readexactly(l_i)
+    async with server_conn.lock:
+        reader, writer = server_conn.reader, server_conn.writer
+        writer.write(b"infer")
+        csi_bytes = csi.tobytes()
+        writer.write(struct.pack("!I", len(csi_bytes)) + csi_bytes)
+        await writer.drain()
+        l_i = struct.unpack("!I", await reader.readexactly(4))[0]
+        data = await reader.readexactly(l_i)
     return latent_to_tensor(data, use_sd_post)
 
 
 async def get_jpg_csi(sensor_conn: Connection):
-    sensor_conn.writer.write(b"jpg")
-    await sensor_conn.writer.drain()
-    l_i, l_c = struct.unpack("!II", await sensor_conn.reader.readexactly(8))
-    buf = BytesIO(await sensor_conn.reader.readexactly(l_i))
-    img = Image.open(buf)
-    csi = np.frombuffer(
-        await sensor_conn.reader.readexactly(l_c), dtype=np.float32
-    )
+    async with sensor_conn.lock:
+        reader, writer = sensor_conn.reader, sensor_conn.writer
+        writer.write(b"jpg")
+        await writer.drain()
+        l_i, l_c = struct.unpack("!II", await reader.readexactly(8))
+        buf = BytesIO(await reader.readexactly(l_i))
+        img = Image.open(buf)
+        csi = np.frombuffer(await reader.readexactly(l_c), dtype=np.float32)
     return img, csi
 
 
 async def get_jpg(server_conn: Connection, sd_settings: Img2ImgParams):
-    packet = InferLastReq.build(sd_settings.to_construct_d())
-    server_conn.writer.write(b"itrai")
-    server_conn.writer.write(len(packet).to_bytes(4, "big") + packet)
-    await server_conn.writer.drain()
-
-    l_i = struct.unpack("!I", await server_conn.reader.readexactly(4))[0]
-    buf = BytesIO(await server_conn.reader.readexactly(l_i))
-    img = Image.open(buf)
+    async with server_conn.lock:
+        reader, writer = server_conn.reader, server_conn.writer
+        packet = InferLastReq.build(sd_settings.to_construct_d())
+        writer.write(b"itrai")
+        writer.write(len(packet).to_bytes(4, "big") + packet)
+        await writer.drain()
+        l_i = struct.unpack("!I", await reader.readexactly(4))[0]
+        buf = BytesIO(await reader.readexactly(l_i))
+        img = Image.open(buf)
     return img
 
 
 async def get_status(server_conn: Connection) -> TrainerState:
-    server_conn.writer.write(b"state")
-    await server_conn.writer.drain()
-    l_o = struct.unpack("!I", await server_conn.reader.readexactly(4))[0]
-    packet = StatusResp.parse(await server_conn.reader.readexactly(l_o))
+    async with server_conn.lock:
+        reader, writer = server_conn.reader, server_conn.writer
+        writer.write(b"state")
+        await writer.drain()
+        l_o = struct.unpack("!I", await reader.readexactly(4))[0]
+        packet = StatusResp.parse(await reader.readexactly(l_o))
     return TrainerState(**{k: v for k, v in packet.items() if k != "_io"})
 
 

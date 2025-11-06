@@ -56,7 +56,9 @@ async def update_slider(
 async def update_lr(input: LRInput, st: ServerState = Depends(get_state)):
     c = st.server_conn
     if st.running and c:
-        c.writer.write(b"chglr" + struct.pack("!f", input.value))
+        async with c.lock:
+            c.writer.write(b"chglr" + struct.pack("!f", input.value))
+            await c.writer.drain()
         return {"status": "lr sent"}
     return {"status": "not running"}
 
@@ -65,11 +67,13 @@ async def update_lr(input: LRInput, st: ServerState = Depends(get_state)):
 async def send_msg(input: MsgInput, st: ServerState = Depends(get_state)):
     c = st.server_conn
     if c:
-        c.writer.write(
-            b"messa"
-            + struct.pack("!I", len(input.value))
-            + input.value.encode("utf-8")
-        )
+        async with c.lock:
+            c.writer.write(
+                b"messa"
+                + struct.pack("!I", len(input.value))
+                + input.value.encode("utf-8")
+            )
+            await c.writer.drain()
         print("sent")
         return {"status": "msg sent"}
     return {"status": "not running"}

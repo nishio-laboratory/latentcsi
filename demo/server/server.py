@@ -1,12 +1,13 @@
 from __future__ import annotations
 from typing import ByteString, Optional
 import struct
-from diffusers import AutoencoderTiny
+from diffusers import AutoencoderTiny, StableDiffusionImg2ImgPipeline
 import numpy as np
 import torch
 import os
 import asyncio
 import torch.multiprocessing as mp
+from PIL import Image
 from demo.client.webserver.models import Img2ImgParams
 from demo.server.decoder import apply_sd, apply_sd_lat, decode_latent_to_image
 from demo.server.protocol import Data, InferLastReq
@@ -112,7 +113,7 @@ class TrainingServerBase:
                     self.message_queue.put_nowait(check_msg(msg_str))
                 elif header == b"state":
                     out_bytes = self.shared.state.construct()
-                    writer.write(len(out_bytes).to_bytes(4) + out_bytes)
+                    writer.write(len(out_bytes).to_bytes(4, "big") + out_bytes)
                     await writer.drain()
                 else:
                     out = await self.dispatch(header, reader)

@@ -1,14 +1,14 @@
 import logging
 import os
-from asyncio import Event, StreamReader, StreamWriter
+from asyncio import Event, Lock, StreamReader, StreamWriter
 from typing import Annotated, Any, Optional
+
+import torch
+from diffusers import AutoencoderTiny, StableDiffusionImg2ImgPipeline
 from fastapi import Request
 from pydantic import BaseModel, PositiveFloat, confloat
 
-from diffusers import AutoencoderTiny, StableDiffusionImg2ImgPipeline
 from demo.client.utils import DummyImageProcessor
-import torch
-
 from demo.server.protocol import InferLastReq, SDParams
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,7 @@ class Connection:
     def __init__(self, reader: StreamReader, writer: StreamWriter):
         self.reader = reader
         self.writer = writer
+        self.lock = Lock()
 
     async def close(self):
         self.writer.close()
