@@ -1,5 +1,6 @@
 * Introduction
-[[https://arxiv.org/abs/2506.10605][Arxiv paper]]
+[[https://arxiv.org/abs/2506.10605][Arxiv paper]] (Globecom 2025)
+[[./docs/slides.pdf][Slide deck]]
 
 This repo contains the code for LatentCSI. We replace the encoder
 component of the stable diffusion image to image pipeline with our own
@@ -8,13 +9,14 @@ fast while enabling higher output resolution and text-guidance. =src=
 contains reproduction code for the supervised training demonstrated in
 the paper.
 
-The use of latent vectors offers a natural way to scale the method to
-a distributed setup with possibly multiple CSI sensors, minimizing
-data transmitted and thus maximizing throughput. =demo= contains this
-work in progress online training demo. We'll present this demo at
-Mobicom 2025!
+We demonstrate that models can be trained from scratch fast enough to
+make a real-time implementation feasible. The use of latent vectors
+offers a natural way to distribute processing between sensors,
+clients, and a cloud training server. A prototype of this architecture
+is contained in =demo= (presented at Mobicom 2025).
 
-* Usage flow
+* Supervised results
+** Usage
 1. Gather data into =dir=. This is:
    - =photos.npy= or =photos.pt=
    - =csi.npy=
@@ -33,22 +35,28 @@ Mobicom 2025!
 All scripts take a =-p/--path= parameter which always refers to the
 top level =dir=.
 
-* Preformatted data (MM-Fi)
+** Preformatted data (MM-Fi)
 Feel free to use the preformatted MM-Fi subset we used from [[https://www.dropbox.com/scl/fo/im4hj37wru3cd2vf7ai4n/ALAsfhv8F8v7Ei39TjxRhhI?rlkey=cwn8bgzcebb2q6k47dzbby6bh&st=nvlgv0xt&dl=0][here]]. The
 reference photos are quite large so they're not included. If you want
 to work on a different subset of MM-fi, you can obtain a copy and then
 use my tool in =src.targets.mmfi_format= which will generate photo/csi
 pairs for you.
 
-* Demo (WIP)
-Contains some WIP code for a real-time demo.
-- =demo/latentcsi-sensor-rs=: Rust CSI sensor code to collect paired
-  csi/image data sample, encode to latent, and send to a training
-  server
-- =demo/server=: Online model training server
-- =demo/client=: Frontend image streaming client
-
-* Data locations
+** Data locations
 CSI data (x): csi.npy
 Latent targets (y): targets/targets_latents.pt
 Photos: photos.pt
+
+
+* Real-time implementation
+This demo is intended to be used with the following components:
+- An CSI sensor node which orchestrates some TX nodes to collected
+  paired CSI/image data. RX nodes run code from
+  =demo/latentcsi-sensor-rs=.
+- An edge server that RX nodes use to encode their images into latent
+  vectors. TensorRT model hosted on a TCP server: =demo/edge=
+- A GPU-enabled training server to train models and answer inference
+  requests: =demo/server=
+- A frontend image streaming client that talks to the training server:
+  =demo/client/webserver= (alternate tkinter clients in the parent
+  directory).
