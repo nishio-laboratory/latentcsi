@@ -83,3 +83,11 @@ async def send_msg(input: MsgInput, st: ServerState = Depends(get_state)):
 async def set_img2img(p: Img2ImgParams, st: ServerState = Depends(get_state)):
     st.sd_settings = p
     return {"status": "ok"}
+
+
+@router.post("/groundtruth")
+async def set_ground_truth(
+    input: GroundTruthInput, st: ServerState = Depends(get_state)
+):
+    st.show_truth = input.enabled
+    return {"status": "ok"}

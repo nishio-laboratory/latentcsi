@@ -36,7 +36,7 @@ class TrainingServerBase:
         self.out_tensor: LockedTensor = LockedTensor(
             torch.zeros(1, 4, 64, 64), self.ctx.Lock()
         )
-        self.real_tensor = torch.zeros(1, 4, 64, 64)
+        self.real_tensor = TrueLatent(torch.zeros(1, 4, 64, 64))
 
         self.ae_tiny = AutoencoderTiny.from_pretrained("madebyollin/taesd").to(
             torch.device("cuda:0"),
@@ -65,6 +65,7 @@ class TrainingServerBase:
                 bytearray(packet.output_bytes), dtype=torch.float32
             ).clone().view(packet.output_shape.dims).cpu().to(self.dtype)
         )
+        self.real_tensor = TrueLatent(outputs[-1].unsqueeze(0))
         if self.data_queue.full():
             self.data_queue.get()
         self.data_queue.put_nowait(Batch(inputs, outputs))
@@ -90,6 +91,17 @@ class TrainingServerBase:
         writer.write(len(img_bytes).to_bytes(4, "big") + img_bytes)
         await writer.drain()
 
+    async def real_latent(self, reader, writer):
+        req_len = struct.unpack("!I", await reader.readexactly(4))[0]
+        req = InferLastReq.parse(await reader.readexactly(req_len))
+        if self.shared.state.batches_trained == 0:
+            img = Image.new("RGB", (512, 512), (0, 0, 255))
+        else:
+            img= decode_latent_to_image(self.real_tensor, self.ae_tiny)
+        img_bytes = pil_image_to_bytes(img)
+        writer.write(len(img_bytes).to_bytes(4, "big") + img_bytes)
+        await writer.drain()
+
     async def handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ):
@@ -102,6 +114,8 @@ class TrainingServerBase:
                     await self.train(reader, writer)
                 elif header == b"itrai":
                     await self.infer_last(reader, writer)
+                elif header == b"truth":
+                    await self.real_latent(reader, writer)
                 elif header == b"messa":
                     req_len = struct.unpack("!I", await reader.readexactly(4))[
                         0

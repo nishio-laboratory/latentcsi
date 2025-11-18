@@ -71,6 +71,7 @@ class ServerState:
         )
         self.interval: float = 0.33
         self.use_sd_post: bool = False
+        self.show_truth: bool = False
         self.running: bool = False
         self.start_event = Event()
         self.shutdown_event = Event()
@@ -86,6 +87,10 @@ class LRInput(BaseModel):
 
 class MsgInput(BaseModel):
     value: str
+
+
+class GroundTruthInput(BaseModel):
+    enabled: bool
 
 
 def get_state(request: Request) -> ServerState:

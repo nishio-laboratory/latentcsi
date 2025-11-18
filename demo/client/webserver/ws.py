@@ -118,6 +118,19 @@ async def get_jpg(server_conn: Connection, sd_settings: Img2ImgParams):
     return img
 
 
+async def get_truth_jpg(server_conn: Connection, sd_settings: Img2ImgParams):
+    async with server_conn.lock:
+        reader, writer = server_conn.reader, server_conn.writer
+        packet = InferLastReq.build(sd_settings.to_construct_d())
+        writer.write(b"truth")
+        writer.write(len(packet).to_bytes(4, "big") + packet)
+        await writer.drain()
+        l_i = struct.unpack("!I", await reader.readexactly(4))[0]
+        buf = BytesIO(await reader.readexactly(l_i))
+        img = Image.open(buf)
+    return img
+
+
 async def get_status(server_conn: Connection) -> TrainerState:
     async with server_conn.lock:
         reader, writer = server_conn.reader, server_conn.writer
@@ -203,9 +216,12 @@ class ImageEndpoint(WebSocketEndpoint):
 
         try:
             while state.running and state.server_conn is conn:
+                truth_img = None
                 try:
                     pil_img = await get_jpg(conn, state.sd_settings)
                     status = await get_status(conn)
+                    if state.show_truth:
+                        truth_img = await get_truth_jpg(conn, state.sd_settings)
                 except asyncio.CancelledError:
                     raise
                 except (
@@ -249,6 +265,15 @@ class ImageEndpoint(WebSocketEndpoint):
                             img=encode_img(pil_img),
                         ),
                     )
+                    if truth_img is not None:
+                        await send_payload(
+                            ws,
+                            ImageMessage(
+                                type="image",
+                                channel="true",
+                                img=encode_img(truth_img),
+                            ),
+                        )
                     await send_payload(
                         ws,
                         TrainerStatusMessage(

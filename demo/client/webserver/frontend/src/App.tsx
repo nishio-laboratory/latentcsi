@@ -293,6 +293,22 @@ function App() {
     });
   };
 
+  const updateGroundTruthPreference = (enabled: boolean) => {
+    fetch("/control/groundtruth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+  };
+
+  const handleShowTrueToggle = () => {
+    setShowTrue((current) => {
+      const next = !current;
+      updateGroundTruthPreference(next);
+      return next;
+    });
+  };
+
   const statusClass = (status: ConnectionStatus | ConnectionStateKind) =>
     status === "connected"
       ? "text-green-600"
@@ -345,7 +361,7 @@ function App() {
             <input
               type="checkbox"
               checked={showTrue}
-              onChange={() => setShowTrue((current) => !current)}
+              onChange={handleShowTrueToggle}
               className="peer sr-only"
             />
             <div className="relative h-6 w-11 rounded-full bg-gray-200 before:absolute before:left-[2px] before:top-[2px] before:h-5 before:w-5 before:rounded-full before:bg-white before:transition-transform peer-checked:bg-blue-600 peer-checked:before:translate-x-full" />
