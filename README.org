@@ -1,5 +1,6 @@
 * Introduction
-[[https://arxiv.org/abs/2506.10605][Arxiv paper]] (Globecom 2025)
+[[https://arxiv.org/abs/2506.10605][Arxiv paper]] (Globecom 2025 @ Taipei)
+[[https://dl.acm.org/doi/10.1145/3680207.3765601][Implementation writeup]] (Mobicom 2025 @ Hong Kong)
 [[./docs/slides.pdf][Slide deck]]
 
 This repo contains the code for LatentCSI. We replace the encoder
@@ -13,7 +14,7 @@ We demonstrate that models can be trained from scratch fast enough to
 make a real-time implementation feasible. The use of latent vectors
 offers a natural way to distribute processing between sensors,
 clients, and a cloud training server. A prototype of this architecture
-is contained in =demo= (presented at Mobicom 2025).
+is contained in =demo=.
 
 * Supervised results
 ** Usage
@@ -28,7 +29,7 @@ is contained in =demo= (presented at Mobicom 2025).
 4. Train models using =src.encoder.baseline= and
    =src.encoder.training_cnn_att=.
 5. Given a ckpt file, generate predictions and reals using
-   =src.inference.viz_test_split=
+   =src.inference.testset_inference=
 6. Compute stats with =src.inference.stats=
 7. Generate figures with files under =src.figures=
 
@@ -46,7 +47,6 @@ pairs for you.
 CSI data (x): csi.npy
 Latent targets (y): targets/targets_latents.pt
 Photos: photos.pt
-
 
 * Real-time implementation
 This demo is intended to be used with the following components:
