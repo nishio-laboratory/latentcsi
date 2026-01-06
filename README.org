@@ -1,6 +1,8 @@
 * Introduction
 [[https://arxiv.org/abs/2506.10605][Arxiv paper]] (Globecom 2025 @ Taipei)
+
 [[https://dl.acm.org/doi/10.1145/3680207.3765601][Implementation writeup]] (Mobicom 2025 @ Hong Kong)
+
 [[./docs/slides.pdf][Slide deck]]
 
 This repo contains the code for LatentCSI. We replace the encoder
