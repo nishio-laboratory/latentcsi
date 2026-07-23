@@ -39,11 +39,11 @@ All scripts take a =-p/--path= parameter which always refers to the
 top level =dir=.
 
 ** Preformatted data (MM-Fi)
-Feel free to use the preformatted MM-Fi subset we used from [[https://www.dropbox.com/scl/fo/im4hj37wru3cd2vf7ai4n/ALAsfhv8F8v7Ei39TjxRhhI?rlkey=cwn8bgzcebb2q6k47dzbby6bh&st=nvlgv0xt&dl=0][here]]. The
-reference photos are quite large so they're not included. If you want
-to work on a different subset of MM-fi, you can obtain a copy and then
-use my tool in =src.targets.mmfi_format= which will generate photo/csi
-pairs for you.
+Feel free to use the preformatted MM-Fi subset we used from [[https://www.dropbox.com/scl/fo/im4hj37wru3cd2vf7ai4n/ALAsfhv8F8v7Ei39TjxRhhI?rlkey=cwn8bgzcebb2q6k47dzbby6bh&st=nvlgv0xt&dl=0][here]]. 
+If you want to work on a different subset of MM-fi, you can obtain an original copy and then
+use my tool in =src.targets.mmfi_format= which will generate photo/csi pairs for you.
+
+This dataset is redistributed under the terms of the [[https://creativecommons.org/licenses/by-nc/4.0/][CC BY-NC 4.0]] from the [[https://github.com/ybhbingo/MMFi_dataset][MM-Fi dataset]]. We have selected environment 3, subjects 1-2, and activities 13, 14, 17 and 18.
 
 ** Data locations
 CSI data (x): csi.npy
